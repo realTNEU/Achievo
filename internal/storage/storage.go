@@ -334,12 +334,46 @@ func (s *Storage) GetUnsyncedEvents(limit int) ([]models.Event, error) {
 func (s *Storage) MarkEventSynced(eventID string) error {
 	collection := s.database.Collection("events")
 
-	_, err := collection.UpdateOne(s.ctx,
-		bson.M{"_id": eventID},
-		bson.M{"$set": bson.M{
+	update := bson.M{
+		"$set": bson.M{
 			"synced":    true,
 			"synced_at": time.Now(),
-		}},
-	)
+		},
+	}
+	_, err := collection.UpdateOne(s.ctx, bson.M{"_id": eventID}, update)
 	return err
+}
+
+// UpsertAchievementDefs upserts multiple achievement definitions
+func (s *Storage) UpsertAchievementDefs(achievements []models.Achievement) error {
+	collection := s.database.Collection("achievements")
+
+	for _, achievement := range achievements {
+		filter := bson.M{"_id": achievement.ID}
+		update := bson.M{"$set": achievement}
+		opts := options.Update().SetUpsert(true)
+
+		if _, err := collection.UpdateOne(s.ctx, filter, update, opts); err != nil {
+			return fmt.Errorf("failed to upsert achievement %s: %w", achievement.ID, err)
+		}
+	}
+
+	return nil
+}
+
+// GetAchievementsBySteamAppID retrieves achievements by Steam App ID
+func (s *Storage) GetAchievementsBySteamAppID(appID string) ([]models.Achievement, error) {
+	collection := s.database.Collection("achievements")
+
+	cursor, err := collection.Find(s.ctx, bson.M{"steam_app_id": appID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(s.ctx)
+
+	var achievements []models.Achievement
+	if err := cursor.All(s.ctx, &achievements); err != nil {
+		return nil, err
+	}
+	return achievements, nil
 }

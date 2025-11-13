@@ -46,16 +46,29 @@ type PathsConfig struct {
 	Cache     string `yaml:"cache"`       // cache directory
 }
 
-// Load loads configuration from a YAML file
+// Load loads configuration from a YAML file and environment variables
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+	var config Config
+
+	// Load from file if it exists
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
+		if err == nil {
+			if err := yaml.Unmarshal(data, &config); err != nil {
+				return nil, fmt.Errorf("failed to parse config file: %w", err)
+			}
+		}
 	}
 
-	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	// Override with environment variables (secrets must come from env)
+	if mongoURI := os.Getenv("ACHIEVO_MONGODB_URI"); mongoURI != "" {
+		config.MongoDB.URI = mongoURI
+	}
+	if steamKey := os.Getenv("ACHIEVO_STEAM_API_KEY"); steamKey != "" {
+		config.Steam.APIKey = steamKey
 	}
 
 	// Set defaults
@@ -74,6 +87,9 @@ func Load(path string) (*Config, error) {
 	if config.MongoDB.Database == "" {
 		config.MongoDB.Database = "achievo"
 	}
+	if config.MongoDB.Timeout == 0 {
+		config.MongoDB.Timeout = 10
+	}
 
 	return &config, nil
 }
@@ -81,10 +97,20 @@ func Load(path string) (*Config, error) {
 // Validate validates the configuration
 func (c *Config) Validate() error {
 	if c.MongoDB.URI == "" {
-		return fmt.Errorf("mongodb.uri is required")
+		// Check environment variable
+		if uri := os.Getenv("ACHIEVO_MONGODB_URI"); uri != "" {
+			c.MongoDB.URI = uri
+		} else {
+			return fmt.Errorf("mongodb.uri is required (set ACHIEVO_MONGODB_URI env var or in config)")
+		}
 	}
 	if c.Steam.APIKey == "" {
-		return fmt.Errorf("steam.api_key is required")
+		// Check environment variable
+		if key := os.Getenv("ACHIEVO_STEAM_API_KEY"); key != "" {
+			c.Steam.APIKey = key
+		} else {
+			return fmt.Errorf("steam.api_key is required (set ACHIEVO_STEAM_API_KEY env var or in config)")
+		}
 	}
 	return nil
 }

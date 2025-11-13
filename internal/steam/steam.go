@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -157,5 +158,121 @@ func (s *SteamClient) CacheAchievements(appID string, achievements []models.Achi
 			return fmt.Errorf("failed to cache achievement %s: %w", ach.ID, err)
 		}
 	}
+	return nil
+}
+
+// FetchAndStoreSchema fetches and stores Steam achievement schema with retries and rate limiting
+func (s *SteamClient) FetchAndStoreSchema(appID string) error {
+	maxRetries := 3
+	retryDelay := 2 * time.Second
+	rateLimitDelay := 1 * time.Second
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Rate limiting: wait between requests
+		if attempt > 1 {
+			time.Sleep(rateLimitDelay)
+		}
+
+		achievements, err := s.fetchSchemaWithRetry(appID, attempt, retryDelay)
+		if err != nil {
+			if attempt == maxRetries {
+				return fmt.Errorf("failed to fetch schema after %d attempts: %w", maxRetries, err)
+			}
+			log.Printf("Attempt %d failed, retrying: %v", attempt, err)
+			time.Sleep(retryDelay * time.Duration(attempt))
+			continue
+		}
+
+		// Validate schema
+		if err := s.validateSchema(achievements); err != nil {
+			return fmt.Errorf("schema validation failed: %w", err)
+		}
+
+		// Store in MongoDB using UpsertAchievementDefs
+		if err := s.storage.UpsertAchievementDefs(achievements); err != nil {
+			return fmt.Errorf("failed to store achievements: %w", err)
+		}
+
+		log.Printf("Successfully fetched and stored %d achievements for Steam App ID %s", len(achievements), appID)
+		return nil
+	}
+
+	return fmt.Errorf("unexpected error in FetchAndStoreSchema")
+}
+
+// fetchSchemaWithRetry fetches schema with a single retry attempt
+func (s *SteamClient) fetchSchemaWithRetry(appID string, attempt int, delay time.Duration) ([]models.Achievement, error) {
+	url := fmt.Sprintf("https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key=%s&appid=%s", s.apiKey, appID)
+
+	resp, err := s.client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Handle rate limiting (429) or server errors (5xx)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		// Wait longer for rate limit
+		time.Sleep(5 * time.Second)
+		return nil, fmt.Errorf("rate limited, will retry")
+	}
+
+	if resp.StatusCode >= 500 {
+		// Server error, retry
+		return nil, fmt.Errorf("server error %d", resp.StatusCode)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Steam API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var apiResp struct {
+		Result SteamSchemaResponse `json:"result"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Convert to our models
+	achievements := make([]models.Achievement, 0)
+	for _, ach := range apiResp.Result.Game.AvailableGameStats.Achievements {
+		achievement := models.Achievement{
+			ID:            fmt.Sprintf("%s-%s", appID, ach.Name),
+			GameID:        appID,
+			SteamAppID:    appID,
+			Name:          ach.DisplayName,
+			Description:   ach.Description,
+			IconURL:       ach.Icon,
+			IconLockedURL: ach.IconGray,
+			IsHidden:      ach.Hidden == 1,
+			FetchedAt:     time.Now(),
+		}
+		achievements = append(achievements, achievement)
+	}
+
+	return achievements, nil
+}
+
+// validateSchema validates the fetched schema
+func (s *SteamClient) validateSchema(achievements []models.Achievement) error {
+	if len(achievements) == 0 {
+		return fmt.Errorf("schema contains no achievements")
+	}
+
+	// Check for required fields
+	for _, ach := range achievements {
+		if ach.ID == "" {
+			return fmt.Errorf("achievement missing ID")
+		}
+		if ach.Name == "" {
+			return fmt.Errorf("achievement %s missing name", ach.ID)
+		}
+		if ach.SteamAppID == "" {
+			return fmt.Errorf("achievement %s missing Steam App ID", ach.ID)
+		}
+	}
+
 	return nil
 }

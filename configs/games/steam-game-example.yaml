@@ -1,0 +1,41 @@
+game_id: "steam-730"
+game_name: "Counter-Strike 2"
+steam_app_id: "730"
+
+detection:
+  process_name: "cs2.exe"
+  window_title: "Counter-Strike 2"
+  executable: ""
+
+achievements:
+  - id: "ach-first-kill"
+    name: "First Blood"
+    rules:
+      - id: "rule-kill-log"
+        type: "log_pattern"
+        config:
+          pattern: ".*killed.*"
+          file: "logs/game.log"
+          
+  - id: "ach-100-kills"
+    name: "Century Club"
+    rules:
+      - id: "rule-counter"
+        type: "counter"
+        config:
+          counter_id: "kills"
+          threshold: 100
+      - id: "rule-increment"
+        type: "log_pattern"
+        config:
+          pattern: ".*killed.*enemy.*"
+          counter_id: "kills"
+          
+  - id: "ach-win-round"
+    name: "Round Winner"
+    rules:
+      - id: "rule-win"
+        type: "log_pattern"
+        config:
+          pattern: ".*round.*won.*"
+

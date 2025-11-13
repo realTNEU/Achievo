@@ -1,0 +1,30 @@
+# Achievo Configuration Example
+# Copy this file to config.yaml and set your values
+# OR use environment variables (recommended for secrets):
+#   ACHIEVO_MONGODB_URI=mongodb://localhost:27017
+#   ACHIEVO_STEAM_API_KEY=your_steam_api_key_here
+
+mongodb:
+  uri: "mongodb://localhost:27017"  # Override with ACHIEVO_MONGODB_URI env var
+  database: "achievo"
+  timeout: 10
+
+steam:
+  api_key: ""  # Override with ACHIEVO_STEAM_API_KEY env var
+
+detection:
+  scan_interval: 5  # seconds between process scans
+  process_check: true
+
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "text"  # json or text
+
+paths:
+  game_rules: "configs/games"
+  cache: ".cache"
+
+# Memory scanning (read-only, disabled by default)
+memory_scanning:
+  enabled: false  # Set to true to enable memory signature scanning
+

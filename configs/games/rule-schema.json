@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Achievo Game Rule Schema",
+  "type": "object",
+  "required": ["game_id", "game_name", "detection", "achievements"],
+  "properties": {
+    "game_id": {
+      "type": "string",
+      "description": "Unique identifier for the game"
+    },
+    "game_name": {
+      "type": "string",
+      "description": "Display name of the game"
+    },
+    "steam_app_id": {
+      "type": "string",
+      "description": "Steam App ID (optional, for Steam games)"
+    },
+    "detection": {
+      "type": "object",
+      "required": ["process_name"],
+      "properties": {
+        "process_name": {
+          "type": "string",
+          "description": "Executable process name"
+        },
+        "window_title": {
+          "type": "string",
+          "description": "Window title pattern (optional)"
+        },
+        "executable": {
+          "type": "string",
+          "description": "Full path to executable (optional)"
+        }
+      }
+    },
+    "achievements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "rules"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique achievement identifier"
+          },
+          "name": {
+            "type": "string",
+            "description": "Achievement display name"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "type", "config"],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": ["file_watch", "log_pattern", "counter", "memory_signature"]
+                },
+                "config": {
+                  "type": "object",
+                  "description": "Rule-specific configuration"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

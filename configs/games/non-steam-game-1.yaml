@@ -1,0 +1,36 @@
+game_id: "game-minecraft"
+game_name: "Minecraft"
+
+detection:
+  process_name: "javaw.exe"
+  window_title: "Minecraft"
+  executable: ""
+
+achievements:
+  - id: "ach-first-night"
+    name: "Survive the Night"
+    rules:
+      - id: "rule-time-log"
+        type: "log_pattern"
+        config:
+          pattern: ".*Day.*1.*"
+          file: "logs/latest.log"
+          
+  - id: "ach-mine-diamond"
+    name: "Diamonds!"
+    rules:
+      - id: "rule-diamond-log"
+        type: "log_pattern"
+        config:
+          pattern: ".*diamond.*"
+          file: "logs/latest.log"
+          
+  - id: "ach-build-house"
+    name: "Home Sweet Home"
+    rules:
+      - id: "rule-save-file"
+        type: "file_watch"
+        config:
+          path: "saves/*/level.dat"
+          condition: "modified"
+

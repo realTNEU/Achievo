@@ -5,10 +5,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"achievo/internal/config"
+	"achievo/internal/discovery"
 	"achievo/internal/detector"
 	"achievo/internal/models"
 	"achievo/internal/monitor"
@@ -21,18 +23,21 @@ import (
 
 // Service is the main orchestrator
 type Service struct {
-	config      *config.Config
-	storage     *storage.Storage
-	detector    *detector.Detector
-	monitor     *monitor.Monitor
-	steam       *steam.SteamClient
-	ruleEngine  *rules.RuleEngine
-	scanner     *scanner.Scanner
-	tracker     *tracker.Tracker
-	running     bool
-	activeGames map[string]*GameContext
-	mu          sync.RWMutex
-	stopChan    chan struct{}
+	config        *config.Config
+	storage       *storage.Storage
+	detector      *detector.Detector
+	monitor       *monitor.Monitor
+	steam         *steam.SteamClient
+	ruleEngine    *rules.RuleEngine
+	scanner       *scanner.Scanner
+	tracker       *tracker.Tracker
+	discoverer    *discovery.Discoverer
+	ruleGenerator *rules.RuleGenerator
+	running       bool
+	activeGames   map[string]*GameContext
+	mu            sync.RWMutex
+	stopChan      chan struct{}
+	startTime     time.Time
 }
 
 // GameContext tracks context for an active game
@@ -58,18 +63,23 @@ func New(cfg *config.Config) (*Service, error) {
 	ruleEng := rules.New()
 	scn := scanner.New()
 	trk := tracker.New(stor)
+	disc := discovery.New()
+	ruleGen := rules.NewRuleGenerator(cfg.Paths.GameRules)
 
 	service := &Service{
-		config:      cfg,
-		storage:     stor,
-		detector:    det,
-		monitor:     mon,
-		steam:       steamClient,
-		ruleEngine:  ruleEng,
-		scanner:     scn,
-		tracker:     trk,
-		activeGames: make(map[string]*GameContext),
-		stopChan:    make(chan struct{}),
+		config:        cfg,
+		storage:       stor,
+		detector:      det,
+		monitor:       mon,
+		steam:         steamClient,
+		ruleEngine:    ruleEng,
+		scanner:       scn,
+		tracker:       trk,
+		discoverer:    disc,
+		ruleGenerator: ruleGen,
+		activeGames:   make(map[string]*GameContext),
+		stopChan:      make(chan struct{}),
+		startTime:     time.Now(),
 	}
 
 	return service, nil
@@ -86,6 +96,12 @@ func (s *Service) Start() error {
 	s.mu.Unlock()
 
 	log.Println("Starting Achievo service...")
+
+	// Perform initial game discovery
+	log.Println("Discovering games on mounted drives...")
+	if err := s.discoverGames(); err != nil {
+		log.Printf("Warning: game discovery failed: %v", err)
+	}
 
 	// Load game rules
 	if err := s.loadGameRules(); err != nil {
@@ -108,6 +124,9 @@ func (s *Service) Start() error {
 
 	// Start session monitoring
 	go s.sessionMonitoringLoop()
+
+	// Start heartbeat logging
+	go s.heartbeatLoop()
 
 	log.Println("Achievo service started")
 	return nil
@@ -186,9 +205,118 @@ func (s *Service) loadGameRules() error {
 
 // loadKnownGames loads known games from storage
 func (s *Service) loadKnownGames() error {
-	// This would load games from storage
-	// For now, games are registered when detected
+	// Load games from rule files and register them
+	rulesDir := s.config.Paths.GameRules
+	entries, err := os.ReadDir(rulesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		ext := filepath.Ext(entry.Name())
+		if ext != ".yaml" && ext != ".yml" && ext != ".json" {
+			continue
+		}
+
+		path := filepath.Join(rulesDir, entry.Name())
+		// Load rules first
+		if err := s.ruleEngine.LoadRules(path); err != nil {
+			continue
+		}
+		
+		// Rules are loaded, games will be registered when they're detected
+	}
+
 	return nil
+}
+
+// discoverGames discovers games on mounted drives and generates rule files
+func (s *Service) discoverGames() error {
+	discovered, err := s.discoverer.DiscoverGames()
+	if err != nil {
+		return fmt.Errorf("game discovery failed: %w", err)
+	}
+
+	log.Printf("Discovered %d games", len(discovered))
+
+	for _, discGame := range discovered {
+		// Convert to Game model
+		game := discGame.ToGame()
+
+		// Check if game already exists in storage
+		existing, err := s.storage.GetGame(game.ID)
+		if err == nil && existing != nil {
+			// Game already known, skip
+			continue
+		}
+
+		// Save game to storage
+		if err := s.storage.SaveGame(game); err != nil {
+			log.Printf("Failed to save discovered game %s: %v", game.Name, err)
+			continue
+		}
+
+		// Check if rule file exists - use game ID to construct path
+		rulesDir := s.config.Paths.GameRules
+		filename := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(game.Name, " ", "-"), "/", "-"))
+		rulePath := filepath.Join(rulesDir, filename+".yaml")
+		if _, err := os.Stat(rulePath); os.IsNotExist(err) {
+			// Generate rule file
+			if err := s.ruleGenerator.GenerateRuleFile(game); err != nil {
+				log.Printf("Failed to generate rule file for %s: %v", game.Name, err)
+				continue
+			}
+			log.Printf("Generated rule file for discovered game: %s", game.Name)
+
+			// Load the generated rules
+			if err := s.ruleEngine.LoadRules(rulePath); err != nil {
+				log.Printf("Failed to load generated rules for %s: %v", game.Name, err)
+			}
+		}
+
+		// Register game with detector
+		s.detector.RegisterGame(game)
+
+		// If Steam game, fetch schema
+		if game.Type == models.GameTypeSteam && game.SteamAppID != "" {
+			go func(appID string) {
+				if err := s.steam.FetchAndStoreSchema(appID); err != nil {
+					log.Printf("Failed to fetch Steam schema for %s: %v", appID, err)
+				}
+			}(game.SteamAppID)
+		}
+	}
+
+	return nil
+}
+
+// heartbeatLoop logs periodic heartbeat messages
+func (s *Service) heartbeatLoop() {
+	ticker := time.NewTicker(60 * time.Second) // Heartbeat every minute
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case <-ticker.C:
+			s.mu.RLock()
+			activeCount := len(s.activeGames)
+			uptime := time.Since(s.startTime)
+			s.mu.RUnlock()
+
+			log.Printf("[HEARTBEAT] Service running | Active games: %d | Uptime: %s",
+				activeCount,
+				uptime.Round(time.Second))
+		}
+	}
 }
 
 // detectionLoop continuously detects running games

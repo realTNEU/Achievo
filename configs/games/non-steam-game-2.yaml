@@ -1,0 +1,36 @@
+game_id: "game-skyrim"
+game_name: "The Elder Scrolls V: Skyrim"
+
+detection:
+  process_name: "TESV.exe"
+  window_title: "Skyrim"
+  executable: ""
+
+achievements:
+  - id: "ach-save-game"
+    name: "Progress Saved"
+    rules:
+      - id: "rule-save-file"
+        type: "file_watch"
+        config:
+          path: "Saves/*.ess"
+          condition: "modified"
+          
+  - id: "ach-level-up"
+    name: "Level Up"
+    rules:
+      - id: "rule-level-log"
+        type: "log_pattern"
+        config:
+          pattern: ".*Level.*up.*to.*(?P<level>\\d+).*"
+          file: "logs/skyrim.log"
+          
+  - id: "ach-quest-complete"
+    name: "Quest Complete"
+    rules:
+      - id: "rule-quest-log"
+        type: "log_pattern"
+        config:
+          pattern: ".*Quest.*completed.*"
+          file: "logs/skyrim.log"
+
