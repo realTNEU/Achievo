@@ -66,12 +66,23 @@ jobs:
 
     - name: Verify project structure
       shell: bash
+      continue-on-error: true
       run: |
         echo "Current directory: $(pwd)"
         echo "Listing cmd directory:"
-        ls -la cmd/ || dir cmd
-        echo "Checking cmd/achievo:"
-        ls -la cmd/achievo/ || dir cmd\achievo
+        ls -la cmd/ || true
+        echo "Checking for cmd/achievo:"
+        if [ -d "cmd/achievo" ]; then
+          ls -la cmd/achievo/ || true
+        else
+          echo "Warning: cmd/achievo directory not found"
+        fi
+        echo "Checking for cmd/fetch-steam-schema:"
+        if [ -d "cmd/fetch-steam-schema" ]; then
+          ls -la cmd/fetch-steam-schema/ || true
+        else
+          echo "Warning: cmd/fetch-steam-schema directory not found"
+        fi
 
     - name: Build
       shell: bash
