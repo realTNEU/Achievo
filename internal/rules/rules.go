@@ -263,7 +263,7 @@ func (re *RuleEngine) evaluateRule(rule *Rule, context *EvaluationContext) (bool
 }
 
 // evaluateFileWatch evaluates a file watch rule
-func (re *RuleEngine) evaluateFileWatch(rule *Rule, context *EvaluationContext) (bool, error) {
+func (re *RuleEngine) evaluateFileWatch(rule *Rule, _ *EvaluationContext) (bool, error) {
 	path, ok := rule.Config["path"].(string)
 	if !ok {
 		return false, fmt.Errorf("file_watch rule requires 'path' config")
@@ -363,7 +363,7 @@ func (re *RuleEngine) evaluateCounter(rule *Rule, context *EvaluationContext) (b
 }
 
 // evaluateMemorySig evaluates a memory signature rule
-func (re *RuleEngine) evaluateMemorySig(rule *Rule, context *EvaluationContext) (bool, error) {
+func (re *RuleEngine) evaluateMemorySig(_ *Rule, _ *EvaluationContext) (bool, error) {
 	// Memory signature scanning is a placeholder
 	// Full implementation would require process memory reading
 	// This is a read-only, non-invasive operation

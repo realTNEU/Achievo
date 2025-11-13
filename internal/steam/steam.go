@@ -201,7 +201,7 @@ func (s *SteamClient) FetchAndStoreSchema(appID string) error {
 }
 
 // fetchSchemaWithRetry fetches schema with a single retry attempt
-func (s *SteamClient) fetchSchemaWithRetry(appID string, attempt int, delay time.Duration) ([]models.Achievement, error) {
+func (s *SteamClient) fetchSchemaWithRetry(appID string, _ int, _ time.Duration) ([]models.Achievement, error) {
 	url := fmt.Sprintf("https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key=%s&appid=%s", s.apiKey, appID)
 
 	resp, err := s.client.Get(url)

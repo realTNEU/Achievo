@@ -33,15 +33,16 @@ func (v *Validator) ValidateRuleFile(filePath string) error {
 	var gameRules GameRules
 	ext := filepath.Ext(filePath)
 	
-	if ext == ".yaml" || ext == ".yml" {
+	switch ext {
+	case ".yaml", ".yml":
 		if err := yaml.Unmarshal(data, &gameRules); err != nil {
 			return fmt.Errorf("invalid YAML: %w", err)
 		}
-	} else if ext == ".json" {
+	case ".json":
 		if err := json.Unmarshal(data, &gameRules); err != nil {
 			return fmt.Errorf("invalid JSON: %w", err)
 		}
-	} else {
+	default:
 		return fmt.Errorf("unsupported file format: %s", ext)
 	}
 

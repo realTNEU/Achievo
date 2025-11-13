@@ -12,6 +12,7 @@ achievo.exe
 
 # Output of the go coverage tool
 *.out
+coverage.out
 
 # Dependency directories
 vendor/
