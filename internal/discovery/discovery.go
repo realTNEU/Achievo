@@ -93,6 +93,7 @@ func (d *Discoverer) DiscoverGames() ([]DiscoveredGame, error) {
 	log.Printf("[INFO] Found %d mounted drives to scan", len(drives))
 
 	scannedDrives := 0
+	totalSkipped := 0
 	for _, drive := range drives {
 		driveStart := time.Now()
 		games, err := d.scanDrive(drive)
@@ -103,14 +104,30 @@ func (d *Discoverer) DiscoverGames() ([]DiscoveredGame, error) {
 			continue
 		}
 		
+		// Filter out system utilities and non-games
+		validGames := []DiscoveredGame{}
+		for _, game := range games {
+			if d.isSystemPath(game.ExecutablePath) || d.isSystemExe(game.ProcessName) {
+				totalSkipped++
+				log.Printf("[SKIP] Filtered out non-game: %s (%s)", game.Name, game.ProcessName)
+				continue
+			}
+			validGames = append(validGames, game)
+		}
+		
 		scannedDrives++
-		allGames = append(allGames, games...)
-		log.Printf("[INFO] Scanned drive %s in %v, found %d potential games", drive, driveDuration, len(games))
+		allGames = append(allGames, validGames...)
+		log.Printf("[INFO] Scanned drive %s in %v | Found: %d games | Skipped: %d utilities", 
+			drive, driveDuration, len(validGames), len(games)-len(validGames))
 	}
 
 	totalDuration := time.Since(startTime)
-	log.Printf("[INFO] Discovery scan completed in %v: scanned %d/%d drives, found %d total games", 
-		totalDuration, scannedDrives, len(drives), len(allGames))
+	log.Printf("[INFO] ===== Discovery Summary =====")
+	log.Printf("[INFO] Duration: %v", totalDuration)
+	log.Printf("[INFO] Drives scanned: %d/%d", scannedDrives, len(drives))
+	log.Printf("[INFO] Games found: %d", len(allGames))
+	log.Printf("[INFO] Utilities/drivers filtered: %d", totalSkipped)
+	log.Printf("[INFO] ==============================")
 
 	return allGames, nil
 }
@@ -266,15 +283,52 @@ func (d *Discoverer) isLikelyGameDirectory(dirPath string) bool {
 	return hasExe && (hasGameFiles || d.hasGameSubdirectories(dirPath))
 }
 
-// isSystemExe checks if an executable is a system file
+// isSystemExe checks if an executable is a system file, driver, or utility
 func (d *Discoverer) isSystemExe(name string) bool {
+	nameLower := strings.ToLower(name)
+	
+	// System utilities and drivers
 	systemExes := []string{
 		"uninstall", "setup", "installer", "launcher",
 		"update", "patch", "config", "settings",
+		"driver", "service", "svc", "wrapper", "cache",
+		"streamer", "stream", "server", "client",
+		"manager", "tool", "utility", "helper",
+		"dll", "inject", "shim", "cli",
+		"7z", "zip", "rar", "extract",
+		"nvstreamer", "nvfvsdk", "nvoawrapper",
+		"dviout", "tex", "latex",
+		"backup", "restore", "wiibackup",
+		"scuba", "iw5mp", "gfexperience",
 	}
-	nameLower := strings.ToLower(name)
+	
 	for _, sys := range systemExes {
 		if strings.Contains(nameLower, sys) {
+			return true
+		}
+	}
+	
+	// Exclude executables in driver/system paths
+	return false
+}
+
+// isSystemPath checks if a path is a system/driver/utility location
+func (d *Discoverer) isSystemPath(path string) bool {
+	pathLower := strings.ToLower(path)
+	
+	systemPaths := []string{
+		"\\esupport\\", "\\edriver\\",
+		"\\texlive\\", "\\tex\\",
+		"\\nvidia\\", "\\amd\\", "\\intel\\",
+		"\\drivers\\", "\\driver\\",
+		"\\system32\\", "\\syswow64\\",
+		"\\program files\\common files\\",
+		"\\windows\\", "\\temp\\", "\\tmp\\",
+		"\\cache\\", "\\appdata\\local\\temp\\",
+	}
+	
+	for _, sysPath := range systemPaths {
+		if strings.Contains(pathLower, sysPath) {
 			return true
 		}
 	}

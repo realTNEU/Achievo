@@ -115,14 +115,8 @@ func (s *Storage) createIndexes() error {
 		return err
 	}
 
-	// Games collection - unique index on _id (game_id)
-	_, err = games.Indexes().CreateOne(context.Background(), mongo.IndexModel{
-		Keys:    bson.D{{Key: "_id", Value: 1}},
-		Options: options.Index().SetUnique(true).SetName("game_id_unique_idx"),
-	})
-	if err != nil {
-		return err
-	}
+	// Games collection - _id is already unique by default in MongoDB
+	// No need to create a unique index on _id
 
 	// Sessions collection - TTL index on end_time (expire after 90 days)
 	_, err = sessions.Indexes().CreateOne(context.Background(), mongo.IndexModel{
