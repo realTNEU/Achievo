@@ -32,7 +32,7 @@ func (v *Validator) ValidateRuleFile(filePath string) error {
 	// Parse YAML/JSON
 	var gameRules GameRules
 	ext := filepath.Ext(filePath)
-	
+
 	switch ext {
 	case ".yaml", ".yml":
 		if err := yaml.Unmarshal(data, &gameRules); err != nil {
@@ -94,4 +94,3 @@ func (v *Validator) validateStructure(rules *GameRules) error {
 
 	return nil
 }
-

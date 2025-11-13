@@ -21,8 +21,8 @@ type Scanner struct {
 
 // WatchConfig represents a watch configuration
 type WatchConfig struct {
-	Path     string
-	Patterns []string
+	Path      string
+	Patterns  []string
 	Recursive bool
 }
 
@@ -35,8 +35,8 @@ type FileEvent struct {
 
 // LogPattern represents a log parsing pattern
 type LogPattern struct {
-	Pattern   *regexp.Regexp
-	Extract   []string // named groups to extract
+	Pattern *regexp.Regexp
+	Extract []string // named groups to extract
 }
 
 // Match represents a log pattern match
@@ -318,4 +318,3 @@ func (s *Scanner) Close() error {
 	close(s.events)
 	return lastErr
 }
-

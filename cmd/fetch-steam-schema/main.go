@@ -51,4 +51,3 @@ func main() {
 
 	fmt.Printf("Successfully fetched and stored schema for App ID: %s\n", *appID)
 }
-

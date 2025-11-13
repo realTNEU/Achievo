@@ -9,11 +9,17 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	MongoDB   MongoDBConfig   `yaml:"mongodb"`
-	Steam     SteamConfig     `yaml:"steam"`
-	Detection DetectionConfig `yaml:"detection"`
-	Logging   LoggingConfig   `yaml:"logging"`
-	Paths     PathsConfig     `yaml:"paths"`
+	MongoDB        MongoDBConfig        `yaml:"mongodb"`
+	Steam          SteamConfig          `yaml:"steam"`
+	Detection      DetectionConfig      `yaml:"detection"`
+	Logging        LoggingConfig        `yaml:"logging"`
+	Paths          PathsConfig          `yaml:"paths"`
+	MemoryScanning MemoryScanningConfig `yaml:"memory_scanning"`
+}
+
+// MemoryScanningConfig contains memory scanning settings
+type MemoryScanningConfig struct {
+	Enabled bool `yaml:"enabled"` // Memory scanning disabled by default
 }
 
 // MongoDBConfig contains MongoDB connection settings
@@ -30,22 +36,26 @@ type SteamConfig struct {
 
 // DetectionConfig contains game detection settings
 type DetectionConfig struct {
-	ScanInterval     int `yaml:"scan_interval"`      // seconds between process scans
-	ProcessCheck     bool `yaml:"process_check"`    // enable process checking
-	DiscoveryEnabled bool `yaml:"discovery_enabled"` // enable automatic game discovery
-	DiscoveryInterval int `yaml:"discovery_interval"` // hours between discovery scans (0 = only on startup)
+	ScanInterval      int      `yaml:"scan_interval"`      // seconds between process scans
+	ProcessCheck      bool     `yaml:"process_check"`      // enable process checking
+	DiscoveryEnabled  bool     `yaml:"discovery_enabled"`  // enable automatic game discovery
+	DiscoveryInterval int      `yaml:"discovery_interval"` // hours between discovery scans (0 = only on startup)
+	CustomScanPaths   []string `yaml:"custom_scan_paths"`  // custom directories to scan (in addition to drives)
+	LLMEnabled        bool     `yaml:"llm_enabled"`        // enable LLM-based classification
+	LLMAPIURL         string   `yaml:"llm_api_url"`        // LLM API URL (default: http://localhost:11434 for Ollama)
+	LLMModelName      string   `yaml:"llm_model_name"`     // LLM model name (default: llama3.1:8b for LLaMA 3.1 8B)
 }
 
 // LoggingConfig contains logging settings
 type LoggingConfig struct {
-	Level  string `yaml:"level"` // debug, info, warn, error
+	Level  string `yaml:"level"`  // debug, info, warn, error
 	Format string `yaml:"format"` // json, text
 }
 
 // PathsConfig contains path settings
 type PathsConfig struct {
 	GameRules string `yaml:"game_rules"` // directory for game rule files
-	Cache     string `yaml:"cache"`       // cache directory
+	Cache     string `yaml:"cache"`      // cache directory
 }
 
 // Load loads configuration from a YAML file and environment variables
@@ -98,6 +108,10 @@ func Load(path string) (*Config, error) {
 	if config.MongoDB.Timeout == 0 {
 		config.MongoDB.Timeout = 10
 	}
+	// Memory scanning is disabled by default
+	if !config.MemoryScanning.Enabled {
+		config.MemoryScanning.Enabled = false // Explicitly disabled
+	}
 
 	return &config, nil
 }
@@ -122,4 +136,3 @@ func (c *Config) Validate() error {
 	}
 	return nil
 }
-

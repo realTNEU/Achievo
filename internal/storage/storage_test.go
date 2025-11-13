@@ -116,4 +116,3 @@ func TestStorage(t *testing.T) {
 		t.Fatalf("UpsertAchievementDefs failed: %v", err)
 	}
 }
-

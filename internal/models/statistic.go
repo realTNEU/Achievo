@@ -12,4 +12,3 @@ type Statistic struct {
 	ValueString string    `bson:"value_string,omitempty" json:"value_string,omitempty"`
 	LastUpdated time.Time `bson:"last_updated" json:"last_updated"`
 }
-

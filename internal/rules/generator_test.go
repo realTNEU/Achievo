@@ -120,4 +120,3 @@ func TestRuleGenerator_ManualRulePrecedence(t *testing.T) {
 		t.Error("Auto rule file should not be created when manual rule exists")
 	}
 }
-

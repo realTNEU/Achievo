@@ -24,4 +24,3 @@ type Game struct {
 	LastPlayed       time.Time `bson:"last_played" json:"last_played"`
 	TotalPlaytime    int64     `bson:"total_playtime" json:"total_playtime"` // in seconds
 }
-

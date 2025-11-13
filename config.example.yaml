@@ -17,6 +17,12 @@ detection:
   process_check: true
   discovery_enabled: true  # enable automatic game discovery
   discovery_interval: 24  # hours between discovery scans (0 = only on startup)
+  custom_scan_paths:  # custom directories to scan (in addition to mounted drives)
+    - "F:/games"  # Example: specific game directory
+    # - "D:/SteamLibrary/steamapps/common"  # Example: Steam library path
+  llm_enabled: true  # enable LLM-based game classification (requires Ollama or LM Studio)
+  llm_api_url: "https://ollama.tneuserver.online"  # Ollama API URL (local: http://localhost:11434 or remote: https://your-server.com)
+  llm_model_name: "llama3.1:8b"  # LLaMA 3.1 8B model for comprehensive game analysis
 
 logging:
   level: "info"  # debug, info, warn, error
@@ -30,8 +36,9 @@ paths:
 memory_scanning:
   enabled: false  # Set to true to enable memory signature scanning
 
-# Auto-discovery configuration
-# discovery_enabled: true enables automatic game scanning
-# discovery_interval: hours between scans (0 = only on startup)
-# System directories are automatically excluded from scanning
-
+# Notes:
+# - discovery_enabled: true enables automatic game scanning
+# - discovery_interval: hours between scans (0 = only on startup)
+# - System directories are automatically excluded from scanning
+# - LLM requires Ollama with llama3.1:8b model (see docs/LLM_SETUP.md)
+# - If LLM is disabled, Achievo falls back to heuristic-based detection

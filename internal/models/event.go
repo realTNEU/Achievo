@@ -23,4 +23,3 @@ type Event struct {
 	Synced    bool                   `bson:"synced" json:"synced"`
 	SyncedAt  time.Time              `bson:"synced_at,omitempty" json:"synced_at,omitempty"`
 }
-

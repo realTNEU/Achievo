@@ -219,4 +219,3 @@ func (t *Tracker) TrackStatUpdate(gameID, statName string, value interface{}) er
 
 	return t.storage.SaveEvent(&event)
 }
-

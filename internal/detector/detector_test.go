@@ -13,12 +13,12 @@ func TestDetector(t *testing.T) {
 
 	// Register a test game
 	game := &models.Game{
-		ID:          "test-game-1",
-		Name:        "Test Game",
-		Type:        models.GameTypeNonSteam,
-		ProcessName: "testgame.exe",
+		ID:            "test-game-1",
+		Name:          "Test Game",
+		Type:          models.GameTypeNonSteam,
+		ProcessName:   "testgame.exe",
 		FirstDetected: time.Now(),
-		LastPlayed:  time.Now(),
+		LastPlayed:    time.Now(),
 	}
 
 	detector.RegisterGame(game)
@@ -49,19 +49,19 @@ func TestDetectorRegistration(t *testing.T) {
 	detector := New()
 
 	game1 := &models.Game{
-		ID:          "game-1",
-		Name:        "Game 1",
-		ProcessName: "game1.exe",
+		ID:            "game-1",
+		Name:          "Game 1",
+		ProcessName:   "game1.exe",
 		FirstDetected: time.Now(),
-		LastPlayed:  time.Now(),
+		LastPlayed:    time.Now(),
 	}
 
 	game2 := &models.Game{
-		ID:          "game-2",
-		Name:        "Game 2",
-		ProcessName: "game2.exe",
+		ID:            "game-2",
+		Name:          "Game 2",
+		ProcessName:   "game2.exe",
 		FirstDetected: time.Now(),
-		LastPlayed:  time.Now(),
+		LastPlayed:    time.Now(),
 	}
 
 	detector.RegisterGame(game1)
@@ -72,4 +72,3 @@ func TestDetectorRegistration(t *testing.T) {
 		t.Fatalf("Expected 2 known games, got %d", len(known))
 	}
 }
-

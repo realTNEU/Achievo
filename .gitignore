@@ -6,6 +6,8 @@
 *.dylib
 achievo
 achievo.exe
+fetch-steam-schema
+fetch-steam-schema.exe
 
 # Test binary
 *.test
@@ -33,7 +35,7 @@ Thumbs.db
 
 # Config (may contain secrets)
 config.yaml
-!config.yaml.example
+!config.example.yaml
 
 # Cache
 .cache/
@@ -42,3 +44,5 @@ config.yaml
 # MongoDB data
 data/
 
+# Auto-generated rule files (optional - uncomment if you don't want to track them)
+# configs/games/auto/

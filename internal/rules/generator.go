@@ -13,7 +13,7 @@ import (
 
 // RuleGenerator generates rule files for discovered games
 type RuleGenerator struct {
-	rulesDir    string
+	rulesDir     string
 	autoRulesDir string // Separate directory for auto-generated rules
 }
 
@@ -27,6 +27,11 @@ func NewRuleGenerator(rulesDir string) *RuleGenerator {
 
 // GenerateRuleFile generates a basic rule file for a discovered game in the auto directory
 func (rg *RuleGenerator) GenerateRuleFile(game *models.Game) error {
+	return rg.GenerateRuleFileWithLLMInfo(game, nil)
+}
+
+// GenerateRuleFileWithLLMInfo generates a rule file using LLM-inferred paths if available
+func (rg *RuleGenerator) GenerateRuleFileWithLLMInfo(game *models.Game, llmAnalysis interface{}) error {
 	// Check if manual rule file already exists (don't auto-generate if manual exists)
 	manualPath := rg.GetManualRuleFilePath(game)
 	if _, err := os.Stat(manualPath); err == nil {
@@ -41,8 +46,8 @@ func (rg *RuleGenerator) GenerateRuleFile(game *models.Game) error {
 		return nil
 	}
 
-	// Create rule structure
-	gameRules := rg.createBasicRules(game)
+	// Create rule structure with LLM-inferred paths if available
+	gameRules := rg.createBasicRulesWithLLMInfo(game, llmAnalysis)
 
 	// Ensure auto rules directory exists
 	if err := os.MkdirAll(rg.autoRulesDir, 0755); err != nil {
@@ -82,7 +87,7 @@ func (rg *RuleGenerator) normalizeFilename(name string) string {
 	filename = strings.ReplaceAll(filename, " ", "-")
 	filename = strings.ReplaceAll(filename, "/", "-")
 	filename = strings.ReplaceAll(filename, "\\", "-")
-	
+
 	// Remove invalid characters
 	invalid := []rune{'<', '>', ':', '"', '|', '?', '*', '.', ','}
 	for _, char := range invalid {
@@ -101,24 +106,29 @@ func (rg *RuleGenerator) GetSanitizedRuleFileName(game *models.Game) string {
 		// Fallback to game name
 		exeName = game.Name
 	}
-	
+
 	// Remove extension
 	exeName = strings.TrimSuffix(exeName, ".exe")
 	exeName = strings.TrimSuffix(exeName, ".EXE")
-	
+
 	// Normalize
 	normalized := rg.normalizeFilename(exeName)
-	
+
 	// Ensure it starts with "game-"
 	if !strings.HasPrefix(normalized, "game-") {
 		normalized = "game-" + normalized
 	}
-	
+
 	return normalized + ".yaml"
 }
 
-// createBasicRules creates a basic rule structure for a game with comprehensive placeholders
+// createBasicRules creates a basic rule structure for a game (legacy, uses heuristics)
 func (rg *RuleGenerator) createBasicRules(game *models.Game) *GameRules {
+	return rg.createBasicRulesWithLLMInfo(game, nil)
+}
+
+// createBasicRulesWithLLMInfo creates a rule structure using LLM-inferred paths if available
+func (rg *RuleGenerator) createBasicRulesWithLLMInfo(game *models.Game, llmAnalysis interface{}) *GameRules {
 	rules := &GameRules{
 		GameID:   game.ID,
 		GameName: game.Name,
@@ -134,9 +144,30 @@ func (rg *RuleGenerator) createBasicRules(game *models.Game) *GameRules {
 		// Note: We can't add this to DetectionConfig directly, but it's in the game model
 	}
 
-	// Infer common save/log paths
-	savePaths := rg.inferSavePaths(game)
-	logPaths := rg.inferLogPaths(game)
+	// Use LLM-inferred paths if available, otherwise infer using heuristics
+	var savePaths, logPaths []string
+
+	if llmAnalysis != nil {
+		// Extract paths from LLM analysis map
+		if analysisMap, ok := llmAnalysis.(map[string]interface{}); ok {
+			if saves, ok := analysisMap["SavePaths"].([]string); ok {
+				savePaths = saves
+			}
+			if logs, ok := analysisMap["LogPaths"].([]string); ok {
+				logPaths = logs
+			}
+			// ConfigPaths are extracted but not used in rule generation yet
+			// They can be added to rules in the future if needed
+		}
+	}
+
+	// Fall back to heuristics if LLM paths not available
+	if len(savePaths) == 0 {
+		savePaths = rg.inferSavePaths(game)
+	}
+	if len(logPaths) == 0 {
+		logPaths = rg.inferLogPaths(game)
+	}
 
 	// Add placeholder achievement for save file detection
 	if len(savePaths) > 0 {
@@ -176,21 +207,32 @@ func (rg *RuleGenerator) createBasicRules(game *models.Game) *GameRules {
 
 	// Add placeholder achievement for log file watching
 	if len(logPaths) > 0 {
-		rules.Achievements = append(rules.Achievements, AchievementRule{
-			ID:   "ach-log-detected",
-			Name: "Game Activity Detected (Auto-detected)",
-			Rules: []Rule{
-				{
-					ID:   "rule-log-pattern",
-					Type: RuleTypeLogPattern,
-					Config: map[string]interface{}{
-						"pattern": ".*",
-						"file":    logPaths[0],
-						"comment": "Auto-detected log file. Customize pattern for specific achievements.",
+		comment := "LLM-inferred log file path"
+		if llmAnalysis == nil {
+			comment = "Auto-detected log file (heuristic)"
+		}
+
+		for i, logPath := range logPaths {
+			achID := "ach-log-detected"
+			if i > 0 {
+				achID = fmt.Sprintf("ach-log-detected-%d", i+1)
+			}
+			rules.Achievements = append(rules.Achievements, AchievementRule{
+				ID:   achID,
+				Name: fmt.Sprintf("Game Activity Detected %d (LLM-inferred)", i+1),
+				Rules: []Rule{
+					{
+						ID:   fmt.Sprintf("rule-log-pattern-%d", i+1),
+						Type: RuleTypeLogPattern,
+						Config: map[string]interface{}{
+							"pattern": ".*",
+							"file":    logPath,
+							"comment": comment + ". Customize pattern for specific achievements.",
+						},
 					},
 				},
-			},
-		})
+			})
+		}
 	} else {
 		// Add placeholder with default log file guess
 		rules.Achievements = append(rules.Achievements, AchievementRule{
@@ -311,4 +353,3 @@ func (rg *RuleGenerator) inferLogPaths(game *models.Game) []string {
 
 	return paths
 }
-

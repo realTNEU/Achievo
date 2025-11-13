@@ -117,4 +117,3 @@ func TestStorage_RuleMetadata(t *testing.T) {
 		t.Fatalf("FetchRulesForGame returned incorrect metadata")
 	}
 }
-

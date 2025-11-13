@@ -105,4 +105,3 @@ func TestMonitorMultipleSessions(t *testing.T) {
 		t.Fatalf("Expected 2 active sessions after stopping one, got %d", len(allSessions))
 	}
 }
-

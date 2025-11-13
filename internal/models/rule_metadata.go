@@ -13,4 +13,3 @@ type RuleMetadata struct {
 	ReviewedAt      time.Time `bson:"reviewed_at,omitempty" json:"reviewed_at,omitempty"`
 	LastModified    time.Time `bson:"last_modified" json:"last_modified"`
 }
-

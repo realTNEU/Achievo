@@ -1,39 +1,51 @@
 # Achievo - PC Game Achievement Tracker
 
-A lightweight background service written in Go that tracks achievements and gameplay statistics for PC games, supporting both Steam games and locally installed pirated/non-Steam games.
+A lightweight background service written in Go that tracks achievements and gameplay statistics for PC games, supporting both Steam games and locally installed non-Steam games. Features intelligent game detection powered by LLaMA 3.1 8B for accurate classification and automatic rule generation.
+
+## Features
+
+- **Intelligent Game Discovery**: Uses LLaMA 3.1 8B to analyze directory structures and identify games vs software utilities
+- **Automatic Rule Generation**: Creates rule templates with LLM-inferred save/log paths
+- **Steam Integration**: Fetches achievement definitions from Steam Web API
+- **Hybrid Detection**: LLM-powered analysis with heuristic fallback
+- **Custom Scan Paths**: Configure specific directories to scan
+- **Session Tracking**: Monitors game sessions and playtime
+- **Achievement Detection**: Multiple detection methods (file watching, log parsing, counters)
+- **MongoDB Storage**: Persistent storage for games, sessions, achievements, and events
 
 ## Architecture Overview
 
 ### Core Components
 
-1. **Game Detection Module** (`internal/detector`)
+1. **Game Discovery** (`internal/discovery`)
+   - LLM-powered directory analysis using LLaMA 3.1 8B
+   - Scans mounted drives and custom paths
+   - Identifies game root folders, executables, and save/log paths
+   - Falls back to heuristics if LLM unavailable
+
+2. **Game Detection** (`internal/detector`)
    - Monitors running processes to detect game launches
    - Identifies games by executable name, window title, or process signatures
    - Maintains a registry of known games
 
-2. **Process Monitor** (`internal/monitor`)
+3. **Process Monitor** (`internal/monitor`)
    - Tracks game process lifecycle (start/stop events)
    - Monitors playtime and session duration
    - Handles process state changes
 
-3. **Steam Integration** (`internal/steam`)
+4. **Steam Integration** (`internal/steam`)
    - Fetches achievement definitions from Steam Web API
-   - Caches achievement metadata locally
+   - Caches achievement metadata locally in MongoDB
    - Provides canonical achievement definitions for all games
 
-4. **Rule Engine** (`internal/rules`)
+5. **Rule Engine** (`internal/rules`)
    - Modular system for game-specific achievement detection
    - Supports multiple detection methods:
      - File watching (save files, config files)
      - Log pattern matching (regex-based)
      - Incremental counters
-     - Memory signature scanning (read-only)
+     - Memory signature scanning (read-only, disabled by default)
    - Evaluates rules continuously while games are running
-
-5. **File/Log Scanners** (`internal/scanner`)
-   - Watches game directories for file changes
-   - Parses log files with regex patterns
-   - Monitors save file modifications
 
 6. **Storage Layer** (`internal/storage`)
    - MongoDB integration for persistent storage
@@ -55,24 +67,34 @@ A lightweight background service written in Go that tracks achievements and game
 ```
 achievo/
 ├── cmd/
-│   └── achievo/
-│       └── main.go              # Main service entry point
+│   ├── achievo/
+│   │   └── main.go              # Main service entry point
+│   └── fetch-steam-schema/
+│       └── main.go               # Steam schema fetcher utility
 ├── internal/
-│   ├── config/                  # Configuration management
-│   ├── detector/                # Game detection
-│   ├── monitor/                 # Process monitoring
-│   ├── steam/                   # Steam API integration
-│   ├── rules/                   # Rule engine
-│   ├── scanner/                 # File/log scanning
-│   ├── tracker/                 # Achievement tracking
-│   ├── storage/                 # MongoDB storage layer
-│   └── models/                  # Data models
+│   ├── config/                   # Configuration management
+│   ├── detector/                  # Game detection
+│   ├── discovery/                 # LLM-powered game discovery
+│   │   └── llm_classifier.go     # LLaMA integration
+│   ├── monitor/                  # Process monitoring
+│   ├── steam/                    # Steam API integration
+│   ├── rules/                    # Rule engine
+│   ├── scanner/                  # File/log scanning
+│   ├── tracker/                  # Achievement tracking
+│   ├── storage/                  # MongoDB storage layer
+│   └── models/                   # Data models
 ├── pkg/
-│   └── memory/                  # Memory scanning utilities
+│   └── memory/                   # Memory scanning utilities
 ├── configs/
-│   └── games/                   # Game-specific rule files
-├── docs/                        # Architecture documentation
-└── scripts/                     # Utility scripts
+│   └── games/                    # Game-specific rule files
+│       ├── auto/                 # Auto-generated rules
+│       └── *.yaml                # Manual rules
+├── docs/
+│   └── LLM_SETUP.md              # LLM setup guide
+├── README.md                     # This file
+├── QUICKSTART.md                 # Quick start guide
+├── config.example.yaml           # Configuration template
+└── go.mod                        # Go module definition
 ```
 
 ## Data Models
@@ -108,64 +130,66 @@ achievo/
 - Payload (JSON)
 - Sync status
 
-## Configuration
+## LLM-Powered Game Discovery
 
-The service uses a YAML configuration file (`config.yaml`) for:
-- MongoDB connection settings
-- Steam API key
-- Game detection rules
-- File watch paths
-- Log levels
+Achievo uses **LLaMA 3.1 8B** (via Ollama or LM Studio) to intelligently analyze game directories:
+
+### How It Works
+
+1. **Directory Analysis**: LLM analyzes directory structure, files, and metadata
+2. **Game Classification**: Determines if directory is a real game vs software/utility
+3. **Path Inference**: Identifies:
+   - Game root folder
+   - Main executable
+   - Save file paths
+   - Log file paths
+   - Config file paths
+4. **Rule Generation**: Auto-generates rule files with LLM-inferred paths
+
+### Configuration
+
+**Local Ollama:**
+```yaml
+detection:
+  llm_enabled: true
+  llm_api_url: "http://localhost:11434"  # Local Ollama
+  llm_model_name: "llama3.1:8b"          # LLaMA 3.1 8B
+  custom_scan_paths:
+    - "F:/games"                          # Custom directories
+```
+
+**Remote Ollama Server:**
+```yaml
+detection:
+  llm_enabled: true
+  llm_api_url: "https://ollama.tneuserver.online"  # Remote server
+  llm_model_name: "llama3.1:8b"
+  custom_scan_paths:
+    - "F:/games"
+```
+
+See [docs/LLM_SETUP.md](docs/LLM_SETUP.md) for detailed setup instructions.
 
 ## Automatic Game Discovery
 
-Achievo automatically scans all mounted drives to discover game installations with comprehensive logging and filtering:
+### Drive Scanning
+- Scans all mounted drives (C:\, D:\, etc. on Windows)
+- Includes standard game paths (Steam directories, ~/Games)
+- Supports custom scan paths via configuration
+- Smart filtering excludes system directories automatically
 
-### Drive Enumeration
-- **All Mounted Drives**: Scans C:\, D:\, E:\, etc. on Windows; /, /home, /mnt, /media on Linux
-- **Standard Game Paths**: Also checks common install locations:
-  - Windows: `Program Files/Steam/steamapps/common`, `Program Files (x86)/Steam/steamapps/common`
-  - Linux: `~/.steam/steam/steamapps/common`, `~/Games`
-- **Smart Filtering**: Automatically excludes system directories (Windows, System32, Program Files, etc.)
-
-### Game Detection
-- **Executable Signatures**: Identifies games by .exe files (excluding system executables)
-- **Metadata Heuristics**: Detects `steam_appid.txt`, `game.ini`, `config.ini`, and other game metadata files
-- **Directory Patterns**: Recognizes game-like structures (saves/, logs/, data/ folders)
-- **Structured Logging**: All discovery activity logged with timestamps:
-  - `[INFO]` for successful discoveries and scans
-  - `[WARN]` for skipped drives or validation issues
-  - `[ERROR]` for critical failures
+### Detection Methods
+- **LLM Analysis**: Primary method using LLaMA 3.1 8B
+- **Heuristic Fallback**: Executable signatures, metadata files, directory patterns
+- **Steam Detection**: Identifies Steam games via `steam_appid.txt`
 
 ### Auto Rule Generation
-- **Location**: Auto-generated rules saved to `configs/games/auto/`
-- **Naming**: Files use sanitized format: `game-[executablename].yaml` (e.g., `game-mygame.yaml`)
-- **Placeholders**: Templates include:
-  - `executable_path`: Full path to game executable
-  - `save_paths`: Inferred save directory locations
-  - `log_patterns`: Detected log file paths
-  - `memory_signatures`: Empty section (disabled by default)
-- **Database Tracking**: Rules marked as `is_auto_generated: true` in `rule_metadata` collection
-- **Periodic Scanning**: Configurable interval (default: 24 hours, set to 0 for startup-only)
-
-### Auto-Generated Rule Files
-
-When a game is discovered without an existing rule file, Achievo automatically:
-1. Creates a rule template in `configs/games/auto/game-[exename].yaml`
-2. Populates with detected paths and placeholders
-3. Marks the rule as `is_auto_generated: true` in the database
-4. Validates the rule file against schema before loading
-5. Logs the discovery: `[INFO] Game discovered: [name] | Generated rule file: [path]`
+- Creates rule templates in `configs/games/auto/`
+- Uses LLM-inferred paths when available
+- Falls back to heuristic path detection
+- Validates against JSON schema before loading
 
 **Manual rule files take precedence** - if a manual rule exists in `configs/games/`, auto-generation is skipped.
-
-### Review Workflow
-
-1. **Discovery**: Games are discovered and rule files generated automatically
-2. **Review**: Check `configs/games/auto/` for new rule files
-3. **Edit**: Modify auto-generated files directly or copy to `configs/games/` to promote
-4. **Mark Reviewed**: Use `MarkRuleAsReviewed()` API or manually update database
-5. **Query**: Use `ListAutoGeneratedRules()` to find unreviewed rules
 
 ## Game Rule Files
 
@@ -174,25 +198,60 @@ Each game has a JSON/YAML rule file that defines:
 - Achievement unlock conditions
 - File watch patterns
 - Log parsing rules
-- Memory signatures
+- Memory signatures (disabled by default)
 
 **Rule File Locations:**
 - Manual rules: `configs/games/*.yaml` (user-created, take precedence)
 - Auto-generated: `configs/games/auto/*.yaml` (templates, can be edited)
 
-## Usage
+## Quick Start
 
-```bash
-# Build the service
-go build -o achievo.exe ./cmd/achievo
+1. **Prerequisites**:
+   - Go 1.21+
+   - MongoDB running locally
+   - Steam API key (optional, for Steam games)
+   - Ollama with LLaMA 3.1 8B (optional, for LLM-powered discovery)
 
-# Run the service
-./achievo.exe --config config.yaml
-```
+2. **Install**:
+   ```bash
+   git clone https://github.com/realTNEU/Achievo.git
+   cd Achievo
+   go mod download
+   go build -o achievo.exe ./cmd/achievo
+   ```
+
+3. **Configure**:
+   ```bash
+   cp config.example.yaml config.yaml
+   # Edit config.yaml with your settings
+   # Or use environment variables:
+   export ACHIEVO_MONGODB_URI="mongodb://localhost:27017"
+   export ACHIEVO_STEAM_API_KEY="your_key_here"
+   ```
+
+4. **Run**:
+   ```bash
+   ./achievo.exe
+   ```
+
+See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
+
+## Configuration
+
+The service uses a YAML configuration file (`config.yaml`) for:
+- MongoDB connection settings
+- Steam API key
+- LLM settings (Ollama/LM Studio URL and model)
+- Custom scan paths
+- Discovery intervals
+- Memory scanning (disabled by default)
+
+See `config.example.yaml` for all available options.
 
 ## Development Status
 
 This is v1 of the Achievo client, focusing on:
+- ✅ LLM-powered game discovery
 - Core detection and monitoring
 - Steam achievement definition fetching
 - Rule-based achievement detection
@@ -205,3 +264,10 @@ Future versions will include:
 - Additional game platform support
 - Plugin system for community contributions
 
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

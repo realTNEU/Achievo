@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"achievo/internal/config"
-	"achievo/internal/discovery"
 	"achievo/internal/detector"
+	"achievo/internal/discovery"
 	"achievo/internal/models"
 	"achievo/internal/monitor"
 	"achievo/internal/rules"
@@ -22,29 +22,30 @@ import (
 
 // Service is the main orchestrator
 type Service struct {
-	config        *config.Config
-	storage       *storage.Storage
-	detector      *detector.Detector
-	monitor       *monitor.Monitor
-	steam         *steam.SteamClient
-	ruleEngine    *rules.RuleEngine
-	scanner       *scanner.Scanner
-	tracker       *tracker.Tracker
-	discoverer    *discovery.Discoverer
-	ruleGenerator *rules.RuleGenerator
-	running       bool
-	activeGames   map[string]*GameContext
-	mu            sync.RWMutex
-	stopChan      chan struct{}
-	startTime     time.Time
+	config          *config.Config
+	storage         *storage.Storage
+	detector        *detector.Detector
+	monitor         *monitor.Monitor
+	steam           *steam.SteamClient
+	ruleEngine      *rules.RuleEngine
+	scanner         *scanner.Scanner
+	tracker         *tracker.Tracker
+	discoverer      *discovery.Discoverer
+	ruleGenerator   *rules.RuleGenerator
+	running         bool
+	activeGames     map[string]*GameContext
+	discoveredGames map[string]*discovery.DiscoveredGame // Cache discovered game info for rule generation
+	mu              sync.RWMutex
+	stopChan        chan struct{}
+	startTime       time.Time
 }
 
 // GameContext tracks context for an active game
 type GameContext struct {
-	Game      *models.Game
-	Session   *models.Session
-	Rules     *rules.GameRules
-	Watches   []string
+	Game    *models.Game
+	Session *models.Session
+	Rules   *rules.GameRules
+	Watches []string
 }
 
 // New creates a new Service
@@ -62,23 +63,43 @@ func New(cfg *config.Config) (*Service, error) {
 	ruleEng := rules.New()
 	scn := scanner.New()
 	trk := tracker.New(stor)
-	disc := discovery.New()
+
+	// Initialize discoverer with LLM if enabled
+	var disc *discovery.Discoverer
+	if cfg.Detection.LLMEnabled {
+		apiURL := cfg.Detection.LLMAPIURL
+		if apiURL == "" {
+			apiURL = "http://localhost:11434" // Default Ollama
+		}
+		modelName := cfg.Detection.LLMModelName
+		if modelName == "" {
+			modelName = "llama3.1:8b" // Default LLaMA 3.1 8B
+		}
+		disc = discovery.NewWithLLM(apiURL, modelName)
+		log.Printf("[INFO] LLM-based game analysis enabled (API: %s, Model: %s)", apiURL, modelName)
+		log.Printf("[INFO] LLM will analyze game structure, infer paths, and generate rule templates")
+	} else {
+		disc = discovery.New()
+		log.Printf("[INFO] LLM-based classification disabled, using heuristics only")
+	}
+
 	ruleGen := rules.NewRuleGenerator(cfg.Paths.GameRules)
 
 	service := &Service{
-		config:        cfg,
-		storage:       stor,
-		detector:      det,
-		monitor:       mon,
-		steam:         steamClient,
-		ruleEngine:    ruleEng,
-		scanner:       scn,
-		tracker:       trk,
-		discoverer:    disc,
-		ruleGenerator: ruleGen,
-		activeGames:   make(map[string]*GameContext),
-		stopChan:      make(chan struct{}),
-		startTime:     time.Now(),
+		config:          cfg,
+		storage:         stor,
+		detector:        det,
+		monitor:         mon,
+		steam:           steamClient,
+		ruleEngine:      ruleEng,
+		scanner:         scn,
+		tracker:         trk,
+		discoverer:      disc,
+		ruleGenerator:   ruleGen,
+		activeGames:     make(map[string]*GameContext),
+		discoveredGames: make(map[string]*discovery.DiscoveredGame),
+		stopChan:        make(chan struct{}),
+		startTime:       time.Now(),
 	}
 
 	return service, nil
@@ -196,7 +217,39 @@ func (s *Service) loadGameRules() error {
 		}
 	}
 
-		for _, entry := range entries {
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		ext := filepath.Ext(entry.Name())
+		if ext != ".yaml" && ext != ".yml" && ext != ".json" {
+			continue
+		}
+
+		path := filepath.Join(rulesDir, entry.Name())
+		if err := s.ruleEngine.LoadRules(path); err != nil {
+			log.Printf("[WARN] Rule file validation failed or parse error for %s: %v", path, err)
+			// Skip invalid files but continue loading others
+			continue
+		}
+
+		log.Printf("[INFO] Loaded manual rules from %s", path)
+		manualCount++
+	}
+
+	// Load auto-generated rule files
+	autoDir := filepath.Join(rulesDir, "auto")
+	autoEntries, err := os.ReadDir(autoDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("[INFO] Auto-generated rules directory does not exist yet: %s", autoDir)
+		} else {
+			log.Printf("[WARN] Failed to read auto rules directory: %v", err)
+		}
+	} else {
+		autoCount := 0
+		for _, entry := range autoEntries {
 			if entry.IsDir() {
 				continue
 			}
@@ -206,20 +259,18 @@ func (s *Service) loadGameRules() error {
 				continue
 			}
 
-			path := filepath.Join(rulesDir, entry.Name())
+			path := filepath.Join(autoDir, entry.Name())
 			if err := s.ruleEngine.LoadRules(path); err != nil {
-				log.Printf("[WARN] Rule file validation failed or parse error for %s: %v", path, err)
+				log.Printf("[WARN] Invalid rule file for auto-generated %s: %v", path, err)
 				// Skip invalid files but continue loading others
 				continue
 			}
 
-			log.Printf("[INFO] Loaded manual rules from %s", path)
-			manualCount++
+			log.Printf("[INFO] Loaded auto-generated rules from %s", path)
+			autoCount++
 		}
-
-	// Auto-generated rules are stored in database only, not as YAML files
-	log.Printf("[INFO] Loaded %d manual rule files from %s", manualCount, rulesDir)
-	log.Printf("[INFO] Auto-generated rules are stored in database (no local YAML files)")
+		log.Printf("[INFO] Loaded %d manual rule files and %d auto-generated rule files", manualCount, autoCount)
+	}
 
 	return nil
 }
@@ -251,7 +302,7 @@ func (s *Service) loadKnownGames() error {
 		if err := s.ruleEngine.LoadRules(path); err != nil {
 			continue
 		}
-		
+
 		// Rules are loaded, games will be registered when they're detected
 	}
 
@@ -268,7 +319,13 @@ func (s *Service) discoverGames() error {
 	log.Println("Starting game discovery scan...")
 	startTime := time.Now()
 
-	discovered, err := s.discoverer.DiscoverGames()
+	// Get custom scan paths from config
+	customPaths := s.config.Detection.CustomScanPaths
+	if len(customPaths) > 0 {
+		log.Printf("[INFO] Using %d custom scan paths: %v", len(customPaths), customPaths)
+	}
+
+	discovered, err := s.discoverer.DiscoverGames(customPaths)
 	if err != nil {
 		return fmt.Errorf("game discovery failed: %w", err)
 	}
@@ -296,26 +353,52 @@ func (s *Service) discoverGames() error {
 			continue
 		}
 		newGamesCount++
-		log.Printf("[INFO] Game discovered: %s | ID: %s | Type: %s | Executable: %s | Saved to database", 
+		log.Printf("[INFO] Game discovered: %s | ID: %s | Type: %s | Executable: %s | Saved to database",
 			game.Name, game.ID, game.Type, game.ProcessName)
 
-		// Save rule metadata to database only (no YAML files)
-		
-		// Mark rule as auto-generated in database
-		ruleMetadata := &models.RuleMetadata{
-			ID:              fmt.Sprintf("rule-%s", game.ID),
-			GameID:          game.ID,
-			RuleFilePath:    "", // No file path - database only
-			IsAutoGenerated: true,
-			IsReviewed:      false,
-			GeneratedAt:     time.Now(),
-			LastModified:    time.Now(),
+		// Check if manual rule file exists
+		manualPath := s.ruleGenerator.GetManualRuleFilePath(game)
+		if _, err := os.Stat(manualPath); err == nil {
+			// Manual rule file exists, skip auto-generation
+			log.Printf("[INFO] Manual rule file exists for %s, skipping auto-generation", game.Name)
+			s.detector.RegisterGame(game)
+			continue
 		}
-		if err := s.storage.SaveRuleMetadata(ruleMetadata); err != nil {
-			log.Printf("[WARN] Failed to save rule metadata for %s: %v", game.Name, err)
-		} else {
-			log.Printf("[INFO] Saved rule metadata to database for %s (ID: %s)", game.Name, game.ID)
+
+		// Generate auto rule file
+		autoPath := s.ruleGenerator.GetAutoRuleFilePath(game)
+		if _, err := os.Stat(autoPath); os.IsNotExist(err) {
+			// Generate rule file
+			if err := s.ruleGenerator.GenerateRuleFile(game); err != nil {
+				log.Printf("[WARN] Rule creation failed for %s: %v", game.Name, err)
+				continue
+			}
 			newRulesCount++
+			log.Printf("[INFO] Generated auto rule file for %s at %s", game.Name, autoPath)
+
+			// Mark rule as auto-generated in database
+			ruleMetadata := &models.RuleMetadata{
+				ID:              fmt.Sprintf("rule-%s", game.ID),
+				GameID:          game.ID,
+				RuleFilePath:    autoPath,
+				IsAutoGenerated: true,
+				IsReviewed:      false,
+				GeneratedAt:     time.Now(),
+				LastModified:    time.Now(),
+			}
+			if err := s.storage.SaveRuleMetadata(ruleMetadata); err != nil {
+				log.Printf("[WARN] Failed to save rule metadata for %s: %v", game.Name, err)
+			} else {
+				log.Printf("[INFO] Marked rule as auto-generated in database for %s", game.Name)
+			}
+
+			// Load the generated rules with validation
+			if err := s.ruleEngine.LoadRules(autoPath); err != nil {
+				log.Printf("[WARN] Invalid rule file for %s (validation or parse error): %v", game.Name, err)
+				// Continue anyway - rule file exists, user can fix it
+			} else {
+				log.Printf("[INFO] Successfully loaded and validated auto-generated rules for %s", game.Name)
+			}
 		}
 
 		// Register game with detector
@@ -334,7 +417,7 @@ func (s *Service) discoverGames() error {
 		}
 	}
 
-	log.Printf("[INFO] Discovery summary: %d new games saved to database, %d rule metadata entries created", newGamesCount, newRulesCount)
+	log.Printf("[INFO] Discovery summary: %d new games saved, %d auto-generated rule files created", newGamesCount, newRulesCount)
 	return nil
 }
 
@@ -494,7 +577,7 @@ func (s *Service) startGameMonitoring(game *models.Game) {
 		GameID:    game.ID,
 		Timestamp: time.Now(),
 		Payload: map[string]interface{}{
-			"game_name": game.Name,
+			"game_name":  game.Name,
 			"process_id": processID,
 		},
 		Synced: false,
@@ -729,4 +812,3 @@ func (s *Service) updateSessions() {
 		}
 	}
 }
-

@@ -35,7 +35,7 @@ func (s *Scanner) ScanPattern(pattern string) ([]uintptr, error) {
 	// 2. Read process memory (platform-specific)
 	// 3. Search for pattern matches
 	// 4. Return memory addresses where pattern was found
-	
+
 	return nil, fmt.Errorf("memory scanning not yet implemented - requires platform-specific code")
 }
 
@@ -105,4 +105,3 @@ func CompilePattern(pattern string) (*Pattern, error) {
 func Size(v interface{}) int {
 	return int(unsafe.Sizeof(v))
 }
-
