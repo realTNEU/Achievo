@@ -73,15 +73,55 @@ The service will:
 - Start monitoring for running games
 - Log heartbeat messages every minute
 
-## 5. Auto-Discovery
+## 5. Automatic Game Discovery
 
-Achievo automatically:
-- Scans all mounted drives for game installations
-- Detects games by executable files and directory signatures
-- Generates placeholder rule files in `configs/games/`
-- Registers games for monitoring
+Achievo automatically discovers games on your system:
 
-No manual rule file creation needed for basic tracking!
+### How It Works
+
+1. **On Startup**: Scans all mounted drives (C:\, D:\, etc. on Windows)
+2. **Detection Methods**:
+   - Finds executable files (.exe)
+   - Identifies common game folder patterns
+   - Detects Steam games via `steam_appid.txt`
+   - Recognizes game directories by metadata files
+3. **Rule Generation**: Creates template rule files in `configs/games/auto/` for new games
+4. **Periodic Scanning**: Optionally rescans daily (configurable)
+
+### Auto-Generated Rule Files
+
+When a game is discovered, Achievo creates a rule template at:
+```
+configs/games/auto/[game-name].yaml
+```
+
+These templates include:
+- ✅ Executable path placeholders
+- ✅ Default save directory guesses (saves/, SaveGames/, etc.)
+- ✅ Optional log file watch paths
+- ✅ Memory signature sections (disabled by default)
+- ✅ Template achievements for customization
+
+### Editing Auto-Generated Rules
+
+1. **Option 1**: Edit the file in `configs/games/auto/` directly
+2. **Option 2**: Copy to `configs/games/` to create a manual rule (takes precedence)
+
+**Manual rules always override auto-generated ones** - if a file exists in `configs/games/`, the auto version is ignored.
+
+### Performance Considerations
+
+- **First Scan**: May take several minutes depending on drive size
+- **Subsequent Scans**: Faster (only checks new games)
+- **Periodic Scans**: Run in background, don't block service
+- **Large Drives**: Consider excluding system directories in config
+
+### Limitations
+
+- May detect non-game executables (can be manually removed)
+- Save/log paths are best-guess (may need adjustment)
+- Memory scanning requires manual configuration
+- Some games may need manual rule creation for complex achievements
 
 ## 6. Fetch Steam Schemas
 

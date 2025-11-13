@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -128,6 +127,11 @@ func (s *Service) Start() error {
 	// Start heartbeat logging
 	go s.heartbeatLoop()
 
+	// Start periodic discovery if enabled
+	if s.config.Detection.DiscoveryEnabled && s.config.Detection.DiscoveryInterval > 0 {
+		go s.periodicDiscoveryLoop()
+	}
+
 	log.Println("Achievo service started")
 	return nil
 }
@@ -166,19 +170,26 @@ func (s *Service) Stop() error {
 	return nil
 }
 
-// loadGameRules loads all game rule files
+// loadGameRules loads all game rule files (both manual and auto-generated)
 func (s *Service) loadGameRules() error {
 	rulesDir := s.config.Paths.GameRules
 	if rulesDir == "" {
 		return nil
 	}
 
+	// Load manual rule files first
+	manualCount := 0
 	entries, err := os.ReadDir(rulesDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // Directory doesn't exist, that's okay
+			// Directory doesn't exist, try to create it
+			if err := os.MkdirAll(rulesDir, 0755); err != nil {
+				return fmt.Errorf("failed to create rules directory: %w", err)
+			}
+			entries = []os.DirEntry{}
+		} else {
+			return fmt.Errorf("failed to read rules directory: %w", err)
 		}
-		return err
 	}
 
 	for _, entry := range entries {
@@ -193,11 +204,46 @@ func (s *Service) loadGameRules() error {
 
 		path := filepath.Join(rulesDir, entry.Name())
 		if err := s.ruleEngine.LoadRules(path); err != nil {
-			log.Printf("Failed to load rules from %s: %v", path, err)
+			log.Printf("Error: Failed to load manual rules from %s: %v", path, err)
 			continue
 		}
 
-		log.Printf("Loaded rules from %s", path)
+		log.Printf("Loaded manual rules from %s", path)
+		manualCount++
+	}
+
+	// Load auto-generated rule files
+	autoDir := filepath.Join(rulesDir, "auto")
+	autoEntries, err := os.ReadDir(autoDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Auto directory doesn't exist yet, that's okay
+			log.Printf("No auto-generated rules directory found at %s", autoDir)
+		} else {
+			log.Printf("Warning: Failed to read auto rules directory: %v", err)
+		}
+	} else {
+		autoCount := 0
+		for _, entry := range autoEntries {
+			if entry.IsDir() {
+				continue
+			}
+
+			ext := filepath.Ext(entry.Name())
+			if ext != ".yaml" && ext != ".yml" && ext != ".json" {
+				continue
+			}
+
+			path := filepath.Join(autoDir, entry.Name())
+			if err := s.ruleEngine.LoadRules(path); err != nil {
+				log.Printf("Error: Failed to load auto-generated rules from %s: %v", path, err)
+				continue
+			}
+
+			log.Printf("Loaded auto-generated rules from %s", path)
+			autoCount++
+		}
+		log.Printf("Loaded %d manual rule files and %d auto-generated rule files", manualCount, autoCount)
 	}
 
 	return nil
@@ -239,12 +285,24 @@ func (s *Service) loadKnownGames() error {
 
 // discoverGames discovers games on mounted drives and generates rule files
 func (s *Service) discoverGames() error {
+	if !s.config.Detection.DiscoveryEnabled {
+		log.Println("Game discovery is disabled in configuration")
+		return nil
+	}
+
+	log.Println("Starting game discovery scan...")
+	startTime := time.Now()
+
 	discovered, err := s.discoverer.DiscoverGames()
 	if err != nil {
 		return fmt.Errorf("game discovery failed: %w", err)
 	}
 
-	log.Printf("Discovered %d games", len(discovered))
+	duration := time.Since(startTime)
+	log.Printf("Discovery scan completed in %v, found %d potential games", duration, len(discovered))
+
+	newGamesCount := 0
+	newRulesCount := 0
 
 	for _, discGame := range discovered {
 		// Convert to Game model
@@ -259,25 +317,37 @@ func (s *Service) discoverGames() error {
 
 		// Save game to storage
 		if err := s.storage.SaveGame(game); err != nil {
-			log.Printf("Failed to save discovered game %s: %v", game.Name, err)
+			log.Printf("Error: Failed to save discovered game %s to MongoDB: %v", game.Name, err)
+			continue
+		}
+		newGamesCount++
+		log.Printf("Saved new game to database: %s (ID: %s, Type: %s)", game.Name, game.ID, game.Type)
+
+		// Check if manual rule file exists
+		manualPath := s.ruleGenerator.GetManualRuleFilePath(game)
+		if _, err := os.Stat(manualPath); err == nil {
+			// Manual rule file exists, skip auto-generation
+			log.Printf("Manual rule file exists for %s, skipping auto-generation", game.Name)
+			s.detector.RegisterGame(game)
 			continue
 		}
 
-		// Check if rule file exists - use game ID to construct path
-		rulesDir := s.config.Paths.GameRules
-		filename := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(game.Name, " ", "-"), "/", "-"))
-		rulePath := filepath.Join(rulesDir, filename+".yaml")
-		if _, err := os.Stat(rulePath); os.IsNotExist(err) {
+		// Generate auto rule file
+		autoPath := s.ruleGenerator.GetAutoRuleFilePath(game)
+		if _, err := os.Stat(autoPath); os.IsNotExist(err) {
 			// Generate rule file
 			if err := s.ruleGenerator.GenerateRuleFile(game); err != nil {
-				log.Printf("Failed to generate rule file for %s: %v", game.Name, err)
+				log.Printf("Error: Failed to generate rule file for %s: %v", game.Name, err)
 				continue
 			}
-			log.Printf("Generated rule file for discovered game: %s", game.Name)
+			newRulesCount++
+			log.Printf("Generated auto rule file for %s at %s", game.Name, autoPath)
 
 			// Load the generated rules
-			if err := s.ruleEngine.LoadRules(rulePath); err != nil {
-				log.Printf("Failed to load generated rules for %s: %v", game.Name, err)
+			if err := s.ruleEngine.LoadRules(autoPath); err != nil {
+				log.Printf("Error: Failed to load generated rules for %s: %v", game.Name, err)
+			} else {
+				log.Printf("Successfully loaded auto-generated rules for %s", game.Name)
 			}
 		}
 
@@ -286,15 +356,44 @@ func (s *Service) discoverGames() error {
 
 		// If Steam game, fetch schema
 		if game.Type == models.GameTypeSteam && game.SteamAppID != "" {
-			go func(appID string) {
+			go func(appID, gameName string) {
+				log.Printf("Fetching Steam schema for %s (App ID: %s)...", gameName, appID)
 				if err := s.steam.FetchAndStoreSchema(appID); err != nil {
-					log.Printf("Failed to fetch Steam schema for %s: %v", appID, err)
+					log.Printf("Error: Failed to fetch Steam schema for %s: %v", appID, err)
+				} else {
+					log.Printf("Successfully fetched Steam schema for %s", gameName)
 				}
-			}(game.SteamAppID)
+			}(game.SteamAppID, game.Name)
 		}
 	}
 
+	log.Printf("Discovery summary: %d new games saved, %d new rule files generated", newGamesCount, newRulesCount)
 	return nil
+}
+
+// periodicDiscoveryLoop runs periodic discovery scans
+func (s *Service) periodicDiscoveryLoop() {
+	if s.config.Detection.DiscoveryInterval <= 0 {
+		return
+	}
+
+	interval := time.Duration(s.config.Detection.DiscoveryInterval) * time.Hour
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Printf("Periodic discovery enabled: scanning every %v", interval)
+
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case <-ticker.C:
+			log.Println("Starting periodic game discovery scan...")
+			if err := s.discoverGames(); err != nil {
+				log.Printf("Error: Periodic discovery failed: %v", err)
+			}
+		}
+	}
 }
 
 // heartbeatLoop logs periodic heartbeat messages

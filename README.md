@@ -117,14 +117,42 @@ The service uses a YAML configuration file (`config.yaml`) for:
 - File watch paths
 - Log levels
 
+## Automatic Game Discovery
+
+Achievo automatically scans all mounted drives to discover game installations:
+
+- **Recursive Scanning**: Searches all drives for game directories
+- **Smart Detection**: Identifies games by:
+  - Executable files (.exe)
+  - Common install paths and folder patterns
+  - Game metadata files (steam_appid.txt, game.ini, etc.)
+  - Directory signatures (saves/, logs/, data/ folders)
+- **Auto Rule Generation**: Creates rule templates in `configs/games/auto/` for newly discovered games
+- **Periodic Scanning**: Optionally rescans drives periodically (configurable interval)
+
+### Auto-Generated Rule Files
+
+When a game is discovered without an existing rule file, Achievo automatically creates a template in `configs/games/auto/` with:
+- Executable path placeholders
+- Default save directory guesses
+- Optional log file watch paths
+- Empty memory signature sections (disabled by default)
+- Template achievements for customization
+
+**Manual rule files take precedence** - if a manual rule exists in `configs/games/`, auto-generation is skipped for that game.
+
 ## Game Rule Files
 
-Each game has a JSON/YAML rule file in `configs/games/` that defines:
+Each game has a JSON/YAML rule file that defines:
 - Detection criteria (executable name, window title)
 - Achievement unlock conditions
 - File watch patterns
 - Log parsing rules
 - Memory signatures
+
+**Rule File Locations:**
+- Manual rules: `configs/games/*.yaml` (user-created, take precedence)
+- Auto-generated: `configs/games/auto/*.yaml` (templates, can be edited)
 
 ## Usage
 

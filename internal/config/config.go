@@ -30,8 +30,10 @@ type SteamConfig struct {
 
 // DetectionConfig contains game detection settings
 type DetectionConfig struct {
-	ScanInterval int `yaml:"scan_interval"` // seconds
-	ProcessCheck bool `yaml:"process_check"`
+	ScanInterval     int `yaml:"scan_interval"`      // seconds between process scans
+	ProcessCheck     bool `yaml:"process_check"`    // enable process checking
+	DiscoveryEnabled bool `yaml:"discovery_enabled"` // enable automatic game discovery
+	DiscoveryInterval int `yaml:"discovery_interval"` // hours between discovery scans (0 = only on startup)
 }
 
 // LoggingConfig contains logging settings
@@ -80,6 +82,12 @@ func Load(path string) (*Config, error) {
 	}
 	if config.Detection.ScanInterval == 0 {
 		config.Detection.ScanInterval = 5
+	}
+	if !config.Detection.DiscoveryEnabled {
+		config.Detection.DiscoveryEnabled = true // Enable by default
+	}
+	if config.Detection.DiscoveryInterval == 0 {
+		config.Detection.DiscoveryInterval = 24 // Default: scan once per day
 	}
 	if config.Logging.Level == "" {
 		config.Logging.Level = "info"

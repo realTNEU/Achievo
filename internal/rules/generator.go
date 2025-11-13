@@ -13,31 +13,40 @@ import (
 
 // RuleGenerator generates rule files for discovered games
 type RuleGenerator struct {
-	rulesDir string
+	rulesDir    string
+	autoRulesDir string // Separate directory for auto-generated rules
 }
 
 // NewRuleGenerator creates a new rule generator
 func NewRuleGenerator(rulesDir string) *RuleGenerator {
 	return &RuleGenerator{
-		rulesDir: rulesDir,
+		rulesDir:     rulesDir,
+		autoRulesDir: filepath.Join(rulesDir, "auto"),
 	}
 }
 
-// GenerateRuleFile generates a basic rule file for a discovered game
+// GenerateRuleFile generates a basic rule file for a discovered game in the auto directory
 func (rg *RuleGenerator) GenerateRuleFile(game *models.Game) error {
-	// Check if rule file already exists
-	rulePath := rg.getRuleFilePath(game)
+	// Check if manual rule file already exists (don't auto-generate if manual exists)
+	manualPath := rg.GetManualRuleFilePath(game)
+	if _, err := os.Stat(manualPath); err == nil {
+		// Manual rule file exists, don't create auto-generated one
+		return nil
+	}
+
+	// Check if auto-generated rule file already exists
+	rulePath := rg.GetAutoRuleFilePath(game)
 	if _, err := os.Stat(rulePath); err == nil {
-		// Rule file already exists, don't overwrite
+		// Auto rule file already exists, don't overwrite
 		return nil
 	}
 
 	// Create rule structure
 	gameRules := rg.createBasicRules(game)
 
-	// Ensure rules directory exists
-	if err := os.MkdirAll(rg.rulesDir, 0755); err != nil {
-		return fmt.Errorf("failed to create rules directory: %w", err)
+	// Ensure auto rules directory exists
+	if err := os.MkdirAll(rg.autoRulesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create auto rules directory: %w", err)
 	}
 
 	// Write YAML file
@@ -53,10 +62,21 @@ func (rg *RuleGenerator) GenerateRuleFile(game *models.Game) error {
 	return nil
 }
 
-// getRuleFilePath returns the path for a game's rule file
-func (rg *RuleGenerator) getRuleFilePath(game *models.Game) string {
-	// Normalize game name for filename
-	filename := strings.ToLower(game.Name)
+// GetAutoRuleFilePath returns the path for an auto-generated game rule file
+func (rg *RuleGenerator) GetAutoRuleFilePath(game *models.Game) string {
+	filename := rg.normalizeFilename(game.Name)
+	return filepath.Join(rg.autoRulesDir, filename+".yaml")
+}
+
+// GetManualRuleFilePath returns the path for a manual game rule file
+func (rg *RuleGenerator) GetManualRuleFilePath(game *models.Game) string {
+	filename := rg.normalizeFilename(game.Name)
+	return filepath.Join(rg.rulesDir, filename+".yaml")
+}
+
+// normalizeFilename normalizes a game name for use in filenames
+func (rg *RuleGenerator) normalizeFilename(name string) string {
+	filename := strings.ToLower(name)
 	filename = strings.ReplaceAll(filename, " ", "-")
 	filename = strings.ReplaceAll(filename, "/", "-")
 	filename = strings.ReplaceAll(filename, "\\", "-")
@@ -67,30 +87,35 @@ func (rg *RuleGenerator) getRuleFilePath(game *models.Game) string {
 		filename = strings.ReplaceAll(filename, string(char), "")
 	}
 
-	return filepath.Join(rg.rulesDir, filename+".yaml")
+	return filename
 }
 
-// createBasicRules creates a basic rule structure for a game
+// createBasicRules creates a basic rule structure for a game with comprehensive placeholders
 func (rg *RuleGenerator) createBasicRules(game *models.Game) *GameRules {
 	rules := &GameRules{
 		GameID:   game.ID,
 		GameName: game.Name,
 		Detection: DetectionConfig{
 			ProcessName: game.ProcessName,
-			Executable:  game.ExecutablePath,
+			Executable:  game.ExecutablePath, // Full executable path placeholder
 		},
 		Achievements: []AchievementRule{},
+	}
+
+	// Add Steam App ID if available
+	if game.SteamAppID != "" {
+		// Note: We can't add this to DetectionConfig directly, but it's in the game model
 	}
 
 	// Infer common save/log paths
 	savePaths := rg.inferSavePaths(game)
 	logPaths := rg.inferLogPaths(game)
 
-	// Add placeholder achievements based on inferred paths
+	// Add placeholder achievement for save file detection
 	if len(savePaths) > 0 {
 		rules.Achievements = append(rules.Achievements, AchievementRule{
 			ID:   "ach-save-game",
-			Name: "Progress Saved",
+			Name: "Progress Saved (Auto-detected)",
 			Rules: []Rule{
 				{
 					ID:   "rule-save-file",
@@ -98,40 +123,96 @@ func (rg *RuleGenerator) createBasicRules(game *models.Game) *GameRules {
 					Config: map[string]interface{}{
 						"path":      savePaths[0],
 						"condition": "modified",
+						"comment":   "Auto-detected save file path. Adjust if incorrect.",
+					},
+				},
+			},
+		})
+	} else {
+		// Add placeholder with default save directory guess
+		rules.Achievements = append(rules.Achievements, AchievementRule{
+			ID:   "ach-save-game",
+			Name: "Progress Saved (Placeholder)",
+			Rules: []Rule{
+				{
+					ID:   "rule-save-file",
+					Type: RuleTypeFileWatch,
+					Config: map[string]interface{}{
+						"path":      "saves/*.sav",
+						"condition": "modified",
+						"comment":   "Default save path placeholder. Update with actual save file location.",
 					},
 				},
 			},
 		})
 	}
 
+	// Add placeholder achievement for log file watching
 	if len(logPaths) > 0 {
 		rules.Achievements = append(rules.Achievements, AchievementRule{
 			ID:   "ach-log-detected",
-			Name: "Game Activity Detected",
+			Name: "Game Activity Detected (Auto-detected)",
 			Rules: []Rule{
 				{
 					ID:   "rule-log-pattern",
 					Type: RuleTypeLogPattern,
 					Config: map[string]interface{}{
-						"pattern": ".*", // Match any log line
+						"pattern": ".*",
+						"file":    logPaths[0],
+						"comment": "Auto-detected log file. Customize pattern for specific achievements.",
+					},
+				},
+			},
+		})
+	} else {
+		// Add placeholder with default log file guess
+		rules.Achievements = append(rules.Achievements, AchievementRule{
+			ID:   "ach-log-detected",
+			Name: "Game Activity Detected (Placeholder)",
+			Rules: []Rule{
+				{
+					ID:   "rule-log-pattern",
+					Type: RuleTypeLogPattern,
+					Config: map[string]interface{}{
+						"pattern": ".*",
+						"file":    "logs/game.log",
+						"comment": "Default log file placeholder. Update with actual log file path and pattern.",
 					},
 				},
 			},
 		})
 	}
 
-	// Add a comment/placeholder achievement
+	// Add placeholder achievement with memory signature section (disabled by default)
 	rules.Achievements = append(rules.Achievements, AchievementRule{
-		ID:   "ach-placeholder",
-		Name: "Example Achievement (Customize Me)",
+		ID:   "ach-memory-example",
+		Name: "Memory Signature Example (Placeholder - Disabled)",
 		Rules: []Rule{
 			{
-				ID:   "rule-placeholder",
+				ID:   "rule-memory-sig",
+				Type: RuleTypeMemorySig,
+				Config: map[string]interface{}{
+					"pattern": "48 89 5C 24 ?? ?? 00",
+					"offset":  0,
+					"comment": "Memory signature scanning is disabled by default. Enable in config and provide actual memory pattern.",
+					"enabled": false,
+				},
+			},
+		},
+	})
+
+	// Add a template achievement for custom rules
+	rules.Achievements = append(rules.Achievements, AchievementRule{
+		ID:   "ach-custom-template",
+		Name: "Custom Achievement Template",
+		Rules: []Rule{
+			{
+				ID:   "rule-template",
 				Type: RuleTypeFileWatch,
 				Config: map[string]interface{}{
-					"path":      "saves/achievement.dat",
+					"path":      "path/to/achievement/indicator",
 					"condition": "exists",
-					"comment":   "This is a placeholder. Replace with actual achievement conditions.",
+					"comment":   "Template rule. Replace with actual achievement detection logic.",
 				},
 			},
 		},
