@@ -30,3 +30,8 @@ paths:
 memory_scanning:
   enabled: false  # Set to true to enable memory signature scanning
 
+# Auto-discovery configuration
+# discovery_enabled: true enables automatic game scanning
+# discovery_interval: hours between scans (0 = only on startup)
+# System directories are automatically excluded from scanning
+

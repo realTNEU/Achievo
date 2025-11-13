@@ -75,18 +75,21 @@ The service will:
 
 ## 5. Automatic Game Discovery
 
-Achievo automatically discovers games on your system:
+Achievo automatically discovers games on your system with comprehensive logging:
 
 ### How It Works
 
-1. **On Startup**: Scans all mounted drives (C:\, D:\, etc. on Windows)
+1. **On Startup**: Scans all mounted drives (C:\, D:\, etc. on Windows) and standard game paths
 2. **Detection Methods**:
-   - Finds executable files (.exe)
+   - Finds executable files (.exe) with signature matching
    - Identifies common game folder patterns
    - Detects Steam games via `steam_appid.txt`
-   - Recognizes game directories by metadata files
-3. **Rule Generation**: Creates template rule files in `configs/games/auto/` for new games
-4. **Periodic Scanning**: Optionally rescans daily (configurable)
+   - Recognizes game directories by metadata files (game.ini, config.ini, etc.)
+   - Filters out system directories automatically
+3. **Rule Generation**: Creates template rule files in `configs/games/auto/` with sanitized names
+4. **Database Tracking**: Saves games and marks rules as auto-generated
+5. **Periodic Scanning**: Optionally rescans at configurable intervals (default: 24 hours)
+6. **Structured Logging**: All activity logged with `[INFO]`, `[WARN]`, `[ERROR]` prefixes
 
 ### Auto-Generated Rule Files
 
@@ -109,19 +112,42 @@ These templates include:
 
 **Manual rules always override auto-generated ones** - if a file exists in `configs/games/`, the auto version is ignored.
 
+### Configuration
+
+Enable/disable and configure discovery in `config.yaml`:
+
+```yaml
+detection:
+  discovery_enabled: true   # Enable automatic discovery
+  discovery_interval: 24     # Hours between scans (0 = only on startup)
+  scan_interval: 5          # Seconds between process detection scans
+```
+
 ### Performance Considerations
 
-- **First Scan**: May take several minutes depending on drive size
-- **Subsequent Scans**: Faster (only checks new games)
-- **Periodic Scans**: Run in background, don't block service
-- **Large Drives**: Consider excluding system directories in config
+- **First Scan**: May take several minutes depending on drive size and number of directories
+- **Subsequent Scans**: Faster (only checks for new games, skips known ones)
+- **Periodic Scans**: Run in background, don't block service operation
+- **Large Drives**: System directories are automatically excluded
+- **Scan Interval**: Adjust `discovery_interval` to balance freshness vs. performance
+- **Drive Exclusion**: System paths (Windows, System32, Program Files, etc.) are filtered automatically
+
+### Review and Refine Generated Rules
+
+1. **Check Auto Directory**: Look in `configs/games/auto/` after discovery
+2. **Review Files**: Each file is named `game-[executablename].yaml`
+3. **Edit Paths**: Update `save_paths` and `log_patterns` with actual game locations
+4. **Add Achievements**: Expand template achievements with game-specific logic
+5. **Promote to Manual**: Copy to `configs/games/` to make it a manual rule
+6. **Mark Reviewed**: Rules can be marked as reviewed in the database
 
 ### Limitations
 
-- May detect non-game executables (can be manually removed)
-- Save/log paths are best-guess (may need adjustment)
-- Memory scanning requires manual configuration
-- Some games may need manual rule creation for complex achievements
+- **False Positives**: May detect non-game executables (can be manually removed from database)
+- **Path Guessing**: Save/log paths are best-guess (may need manual adjustment)
+- **Memory Scanning**: Disabled by default, requires explicit config enablement
+- **Complex Achievements**: Simple templates only, complex logic needs manual rules
+- **Schema Validation**: Invalid rule files are skipped with warnings (check logs)
 
 ## 6. Fetch Steam Schemas
 

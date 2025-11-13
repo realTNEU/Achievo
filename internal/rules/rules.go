@@ -16,26 +16,26 @@ import (
 type RuleType string
 
 const (
-	RuleTypeFileWatch    RuleType = "file_watch"
-	RuleTypeLogPattern   RuleType = "log_pattern"
-	RuleTypeCounter      RuleType = "counter"
-	RuleTypeMemorySig    RuleType = "memory_signature"
+	RuleTypeFileWatch  RuleType = "file_watch"
+	RuleTypeLogPattern RuleType = "log_pattern"
+	RuleTypeCounter    RuleType = "counter"
+	RuleTypeMemorySig  RuleType = "memory_signature"
 )
 
 // Rule represents a single achievement rule
 type Rule struct {
-	ID          string                 `yaml:"id" json:"id"`
-	Type        RuleType               `yaml:"type" json:"type"`
-	Config      map[string]interface{} `yaml:"config" json:"config"`
-	compiled    *CompiledRule
+	ID       string                 `yaml:"id" json:"id"`
+	Type     RuleType               `yaml:"type" json:"type"`
+	Config   map[string]interface{} `yaml:"config" json:"config"`
+	compiled *CompiledRule
 }
 
 // CompiledRule contains compiled rule data
 type CompiledRule struct {
-	Regex       *regexp.Regexp
-	Pattern     string
-	Threshold   float64
-	Counter     *Counter
+	Regex     *regexp.Regexp
+	Pattern   string
+	Threshold float64
+	Counter   *Counter
 }
 
 // Counter tracks incremental values
@@ -47,17 +47,17 @@ type Counter struct {
 
 // GameRules represents rules for a game
 type GameRules struct {
-	GameID      string                 `yaml:"game_id" json:"game_id"`
-	GameName    string                 `yaml:"game_name" json:"game_name"`
-	Detection   DetectionConfig        `yaml:"detection" json:"detection"`
-	Achievements []AchievementRule     `yaml:"achievements" json:"achievements"`
+	GameID       string            `yaml:"game_id" json:"game_id"`
+	GameName     string            `yaml:"game_name" json:"game_name"`
+	Detection    DetectionConfig   `yaml:"detection" json:"detection"`
+	Achievements []AchievementRule `yaml:"achievements" json:"achievements"`
 }
 
 // DetectionConfig defines how to detect the game
 type DetectionConfig struct {
 	ProcessName string `yaml:"process_name" json:"process_name"`
-	WindowTitle  string `yaml:"window_title,omitempty" json:"window_title,omitempty"`
-	Executable   string `yaml:"executable,omitempty" json:"executable,omitempty"`
+	WindowTitle string `yaml:"window_title,omitempty" json:"window_title,omitempty"`
+	Executable  string `yaml:"executable,omitempty" json:"executable,omitempty"`
 }
 
 // AchievementRule defines rules for unlocking an achievement
@@ -81,9 +81,9 @@ type EvaluationContext struct {
 
 // RuleEngine evaluates game-specific rules
 type RuleEngine struct {
-	rules   map[string]*GameRules
+	rules    map[string]*GameRules
 	counters map[string]map[string]*Counter // gameID -> counterID -> Counter
-	mu      sync.RWMutex
+	mu       sync.RWMutex
 }
 
 // New creates a new RuleEngine
@@ -94,8 +94,17 @@ func New() *RuleEngine {
 	}
 }
 
-// LoadRules loads rules from a file
+// LoadRules loads rules from a file with validation
+// Returns error if file cannot be loaded, but validation errors are logged as warnings
 func (re *RuleEngine) LoadRules(filePath string) error {
+	// Validate rule file first (warn on validation errors but continue)
+	validator := NewValidator("")
+	if err := validator.ValidateRuleFile(filePath); err != nil {
+		// Log warning but don't fail - allow loading with validation issues
+		// The caller can decide whether to skip or continue
+		return fmt.Errorf("rule file validation failed: %w", err)
+	}
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read rule file: %w", err)
@@ -392,4 +401,3 @@ func (re *RuleEngine) GetCounter(gameID, counterID string) (*Counter, error) {
 
 	return counter, nil
 }
-

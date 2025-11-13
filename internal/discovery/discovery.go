@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -36,46 +37,86 @@ type DiscoveredGame struct {
 	Confidence       float64 // 0.0 to 1.0
 }
 
-// New creates a new Discoverer
+// New creates a new Discoverer with comprehensive path exclusions
 func New() *Discoverer {
+	excluded := map[string]bool{
+		// Windows system paths
+		"Windows":                true,
+		"Program Files":          true,
+		"Program Files (x86)":    true,
+		"ProgramData":            true,
+		"System32":               true,
+		"SysWOW64":               true,
+		"$Recycle.Bin":           true,
+		"System Volume Information": true,
+		"Recovery":               true,
+		"PerfLogs":               true,
+		// Common non-game application paths
+		"Programs":               true,
+		"Applications":           true,
+		// Linux system paths
+		"proc":                   true,
+		"sys":                    true,
+		"dev":                    true,
+		"boot":                   true,
+		"lib":                    true,
+		"lib64":                  true,
+		"bin":                    true,
+		"sbin":                   true,
+		"usr":                    true,
+		"var":                    true,
+		"tmp":                    true,
+		"run":                    true,
+		"lost+found":             true,
+	}
+
 	return &Discoverer{
-		excludedPaths: map[string]bool{
-			"Windows":     true,
-			"Program Files": true,
-			"Program Files (x86)": true,
-			"System32":    true,
-			"SysWOW64":   true,
-			"$Recycle.Bin": true,
-			"System Volume Information": true,
-		},
+		excludedPaths:  excluded,
 		gameSignatures: getDefaultGameSignatures(),
 	}
 }
 
-// DiscoverGames scans all mounted drives for game installations
+// DiscoverGames scans all mounted drives for game installations with structured logging
 func (d *Discoverer) DiscoverGames() ([]DiscoveredGame, error) {
+	startTime := time.Now()
+	log.Printf("[INFO] Starting game discovery scan at %s", startTime.Format(time.RFC3339))
+	
 	var allGames []DiscoveredGame
 	
 	// Get all mounted drives
 	drives, err := d.getMountedDrives()
 	if err != nil {
+		log.Printf("[ERROR] Failed to get mounted drives: %v", err)
 		return nil, fmt.Errorf("failed to get mounted drives: %w", err)
 	}
 
+	log.Printf("[INFO] Found %d mounted drives to scan", len(drives))
+
+	scannedDrives := 0
 	for _, drive := range drives {
+		driveStart := time.Now()
 		games, err := d.scanDrive(drive)
+		driveDuration := time.Since(driveStart)
+		
 		if err != nil {
-			// Log but continue with other drives
-			fmt.Printf("Warning: failed to scan drive %s: %v\n", drive, err)
+			log.Printf("[WARN] Failed to scan drive %s after %v: %v", drive, driveDuration, err)
 			continue
 		}
+		
+		scannedDrives++
 		allGames = append(allGames, games...)
+		log.Printf("[INFO] Scanned drive %s in %v, found %d potential games", drive, driveDuration, len(games))
 	}
+
+	totalDuration := time.Since(startTime)
+	log.Printf("[INFO] Discovery scan completed in %v: scanned %d/%d drives, found %d total games", 
+		totalDuration, scannedDrives, len(drives), len(allGames))
 
 	return allGames, nil
 }
 
 // getMountedDrives returns all mounted drive letters (Windows) or mount points (Linux)
+// Also includes standard game install paths
 func (d *Discoverer) getMountedDrives() ([]string, error) {
 	var drives []string
 
@@ -87,12 +128,42 @@ func (d *Discoverer) getMountedDrives() ([]string, error) {
 				drives = append(drives, drive)
 			}
 		}
+		
+		// Add standard Windows game install paths
+		standardPaths := []string{
+			filepath.Join(os.Getenv("PROGRAMFILES"), "Steam", "steamapps", "common"),
+			filepath.Join(os.Getenv("PROGRAMFILES(X86)"), "Steam", "steamapps", "common"),
+			filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs"),
+		}
+		
+		for _, path := range standardPaths {
+			if path != "" && path != "\\" {
+				if _, err := os.Stat(path); err == nil {
+					drives = append(drives, path)
+				}
+			}
+		}
 	} else {
 		// Linux/Unix: common mount points
-		commonMounts := []string{"/", "/home", "/mnt", "/media"}
+		commonMounts := []string{"/", "/home", "/mnt", "/media", "/opt"}
 		for _, mount := range commonMounts {
 			if _, err := os.Stat(mount); err == nil {
 				drives = append(drives, mount)
+			}
+		}
+		
+		// Add standard Linux game paths
+		home := os.Getenv("HOME")
+		if home != "" {
+			linuxPaths := []string{
+				filepath.Join(home, ".steam", "steam", "steamapps", "common"),
+				filepath.Join(home, ".local", "share", "Steam", "steamapps", "common"),
+				filepath.Join(home, "Games"),
+			}
+			for _, path := range linuxPaths {
+				if _, err := os.Stat(path); err == nil {
+					drives = append(drives, path)
+				}
 			}
 		}
 	}

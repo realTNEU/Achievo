@@ -63,18 +63,20 @@ func (rg *RuleGenerator) GenerateRuleFile(game *models.Game) error {
 }
 
 // GetAutoRuleFilePath returns the path for an auto-generated game rule file
+// Uses sanitized filename based on executable name
 func (rg *RuleGenerator) GetAutoRuleFilePath(game *models.Game) string {
-	filename := rg.normalizeFilename(game.Name)
-	return filepath.Join(rg.autoRulesDir, filename+".yaml")
+	filename := rg.GetSanitizedRuleFileName(game)
+	return filepath.Join(rg.autoRulesDir, filename)
 }
 
 // GetManualRuleFilePath returns the path for a manual game rule file
 func (rg *RuleGenerator) GetManualRuleFilePath(game *models.Game) string {
-	filename := rg.normalizeFilename(game.Name)
-	return filepath.Join(rg.rulesDir, filename+".yaml")
+	filename := rg.GetSanitizedRuleFileName(game)
+	return filepath.Join(rg.rulesDir, filename)
 }
 
 // normalizeFilename normalizes a game name for use in filenames
+// Creates sanitized identifier like "game-exename"
 func (rg *RuleGenerator) normalizeFilename(name string) string {
 	filename := strings.ToLower(name)
 	filename = strings.ReplaceAll(filename, " ", "-")
@@ -82,12 +84,37 @@ func (rg *RuleGenerator) normalizeFilename(name string) string {
 	filename = strings.ReplaceAll(filename, "\\", "-")
 	
 	// Remove invalid characters
-	invalid := []rune{'<', '>', ':', '"', '|', '?', '*'}
+	invalid := []rune{'<', '>', ':', '"', '|', '?', '*', '.', ','}
 	for _, char := range invalid {
 		filename = strings.ReplaceAll(filename, string(char), "")
 	}
 
 	return filename
+}
+
+// GetSanitizedRuleFileName creates a sanitized filename from game executable name
+// Format: "game-[executablename].yaml"
+func (rg *RuleGenerator) GetSanitizedRuleFileName(game *models.Game) string {
+	// Use process name (executable name) for better identification
+	exeName := game.ProcessName
+	if exeName == "" {
+		// Fallback to game name
+		exeName = game.Name
+	}
+	
+	// Remove extension
+	exeName = strings.TrimSuffix(exeName, ".exe")
+	exeName = strings.TrimSuffix(exeName, ".EXE")
+	
+	// Normalize
+	normalized := rg.normalizeFilename(exeName)
+	
+	// Ensure it starts with "game-"
+	if !strings.HasPrefix(normalized, "game-") {
+		normalized = "game-" + normalized
+	}
+	
+	return normalized + ".yaml"
 }
 
 // createBasicRules creates a basic rule structure for a game with comprehensive placeholders
