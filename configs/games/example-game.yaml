@@ -1,0 +1,49 @@
+game_id: "example-game-001"
+game_name: "Example Game"
+
+detection:
+  process_name: "example.exe"
+  window_title: "Example Game"
+  executable: "C:\\Games\\Example\\example.exe"
+
+achievements:
+  - id: "ach-first-steps"
+    name: "First Steps"
+    rules:
+      - id: "rule-1"
+        type: "file_watch"
+        config:
+          path: "saves/achievement.dat"
+          condition: "exists"
+          
+  - id: "ach-100-kills"
+    name: "100 Kills"
+    rules:
+      - id: "rule-2"
+        type: "counter"
+        config:
+          counter_id: "kills"
+          threshold: 100
+      - id: "rule-3"
+        type: "log_pattern"
+        config:
+          pattern: "Killed.*enemy"
+          counter_id: "kills"
+          
+  - id: "ach-login"
+    name: "Welcome Back"
+    rules:
+      - id: "rule-4"
+        type: "log_pattern"
+        config:
+          pattern: "User logged in successfully"
+          
+  - id: "ach-save-game"
+    name: "Progress Saved"
+    rules:
+      - id: "rule-5"
+        type: "file_watch"
+        config:
+          path: "saves/autosave.sav"
+          condition: "modified"
+
